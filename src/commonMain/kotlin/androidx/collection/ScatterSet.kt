@@ -203,21 +203,12 @@ public sealed class ScatterSet<E> {
     internal inline fun forEachIndex(block: (index: Int) -> Unit) {
         contract { callsInPlace(block) }
         val flat = metadataFlat
-        val byteLength = metadataFlat.size * 4
-        val groupsCount = (byteLength + 7) shr 3
-        val lastGroupIndex = groupsCount - 2
+        val cap = capacity
 
-        for (i in 0..lastGroupIndex) {
-            var g = groupFromFlat(flat, i shl 3)
-            if (g.maskEmptyOrDeleted() != BitmaskMsb) {
-                val bitCount = 8 - ((i - lastGroupIndex).inv() ushr 31)
-                for (j in 0 until bitCount) {
-                    if (isFull(g and 0xFFL)) {
-                        block((i shl 3) + j)
-                    }
-                    g = g shr 8
-                }
-                if (bitCount != 8) return
+        for (i in 0 until cap) {
+            val byte = readMetaByte(flat, i)
+            if (byte < 0x80) {
+                block(i)
             }
         }
     }
@@ -393,30 +384,21 @@ public sealed class ScatterSet<E> {
         val hash2 = h2(hash)
 
         val probeMask = _capacity
-        println("DEBUG findElementIndex: element=$element, hash=${Integer.toHexString(hash)}, hash1=${Integer.toHexString(hash1)}, hash2=${Integer.toHexString(hash2)}, probeMask=$probeMask")
-
         var probeOffset = hash1 and probeMask
-        var probeIndex = 0
 
-        while (true) {
-            val g = groupFromFlat(metadataFlat, probeOffset * GroupWidth)
-            println("DEBUG findElementIndex: probeOffset=$probeOffset, g=${java.lang.Long.toHexString(g)}")
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                println("DEBUG findElementIndex: match at index=$index, elements[index]=${elements[index]}")
-                if (elements[index] == element) {
-                    return index
-                }
-                m = m.next()
+        // Simple slot-by-slot search for flat layout
+        for (step in 0.._capacity) {
+            val byte = readMetaByte(metadataFlat, probeOffset)
+            if (byte == hash2 && elements[probeOffset] == element) {
+                return probeOffset
             }
-            if (g.maskEmpty() != 0L) {
-                println("DEBUG findElementIndex: maskEmpty, returning -1")
+            if (byte == 0x80) {
+                // Found empty slot - element not found
                 return -1
             }
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+            probeOffset = (probeOffset + 1) and probeMask
         }
+        return -1
     }
 
     /**
@@ -483,15 +465,15 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
 
     private fun initializeMetadata(capacity: Int) {
         // metadataFlat is the only metadata array - flat byte view for C intrinsics
-        metadataFlat =
-            if (capacity == 0) {
-                EmptyIntArray
-            } else {
-                val byteCount = (capacity + 1 + ClonedMetadataCount + 7) and 0x7.inv()
-                IntArray((byteCount + 3) / 4).apply { fill(-0x7f7f7f80.toInt()) }  // All bytes = 0x80 (Empty)
-            }
-        // Write sentinel byte at position capacity
-        writeMetaByte(metadataFlat, capacity, 0xFF)
+        if (capacity == 0) {
+            metadataFlat = EmptyIntArray
+        } else {
+            val byteCount = (capacity + 1 + ClonedMetadataCount + 7) and 0x7.inv()
+            metadataFlat = IntArray((byteCount + 3) / 4)
+            metadataFlat.fill(-0x7f7f7f80.toInt())  // All bytes = 0x80 (Empty)
+            // Write sentinel byte at position capacity
+            writeMetaByte(metadataFlat, capacity, 0xFF)
+        }
         initializeGrowth()
     }
 
@@ -507,7 +489,6 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      *   within the set.
      */
     public fun add(element: E): Boolean {
-        System.err.println("DEBUG add: element=$element, _capacity=$_capacity, metadataFlat.size=${metadataFlat.size}")
         val oldSize = size
         val index = findAbsoluteInsertIndex(element)
         elements[index] = element
@@ -520,7 +501,6 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      * @param element The element to add to the set.
      */
     public operator fun plusAssign(element: E) {
-        java.io.File("/tmp/debug_scatter.txt").appendText("plusAssign: element=$element, _capacity=$_capacity, metadataFlat.size=${metadataFlat.size}\n")
         val index = findAbsoluteInsertIndex(element)
         elements[index] = element
     }
@@ -923,34 +903,29 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      * the set is full.
      */
     private fun findAbsoluteInsertIndex(element: E): Int {
+        // Handle empty set - grow first
+        if (_capacity == 0) {
+            adjustStorage()
+        }
+
         val hash = hash(element)
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
         val probeMask = _capacity
         var probeOffset = hash1 and probeMask
-        var probeIndex = 0
 
-        java.io.File("/tmp/debug_scatter.txt").appendText("findAbsoluteInsertIndex: probeOffset=$probeOffset, probeMask=$probeMask, flat.size=${metadataFlat.size}\n")
-
-        while (true) {
-            java.io.File("/tmp/debug_scatter.txt").appendText("  loop: probeOffset=$probeOffset\n")
-            val g = groupFromFlat(metadataFlat, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (elements[index] == element) {
-                    return index
-                }
-                m = m.next()
+        // Simple slot-by-slot search for flat layout
+        for (step in 0.._capacity) {
+            val byte = readMetaByte(metadataFlat, probeOffset)
+            if (byte == hash2 && elements[probeOffset] == element) {
+                return probeOffset
             }
-
-            if (g.maskEmpty() != 0L) {
+            if (byte == 0x80) {
+                // Found empty slot - this is where we insert
                 break
             }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+            probeOffset = (probeOffset + 1) and probeMask
         }
 
         // No existing element. Find first available slot (Empty or Deleted).
@@ -974,17 +949,16 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     private fun findFirstAvailableSlot(hash1: Int): Int {
         val probeMask = _capacity
         var probeOffset = hash1 and probeMask
-        var probeIndex = 0
 
-        while (true) {
-            val g = groupFromFlat(metadataFlat, probeOffset * GroupWidth)
-            val m = g.maskEmptyOrDeleted()
-            if (m != 0L) {
-                return (probeOffset + m.lowestBitSet()) and probeMask
+        // Simple slot-by-slot search for flat layout
+        for (step in 0.._capacity) {
+            val byte = readMetaByte(metadataFlat, probeOffset)
+            if (byte == 0x80 || byte == 0xFE) {
+                return probeOffset
             }
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+            probeOffset = (probeOffset + 1) and probeMask
         }
+        return probeOffset // Should not reach here
     }
 
     /**
