@@ -207,13 +207,13 @@ public sealed class ScatterSet<E> {
     internal inline fun forEachIndex(block: (index: Int) -> Unit) {
         contract { callsInPlace(block) }
         val m = metadata
-        val lastLongIndex = (m.size shr 1) - 1 // Index of last Long in IntArray
-
-        for (i in 0..lastLongIndex) {
+        val cap = capacity
+        val endLongIndex = (cap + 7) shr 3
+        for (i in 0 until endLongIndex) {
             val intIndex = i shl 1
             var slot = ((m[intIndex + 1].toLong() shl 32) or (m[intIndex].toLong() and 0xFFFFFFFFL))
             if (slot.maskEmptyOrDeleted() != BitmaskMsb) {
-                val bitCount = if (i == lastLongIndex) 7 else 8
+                val bitCount = if (i == endLongIndex - 1) 7 else 8
                 for (j in 0 until bitCount) {
                     if (isFull(slot and 0xFFL)) {
                         val index = (i shl 3) + j
@@ -1058,9 +1058,9 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
                 writeRawMetadata(metadata, index, hash2.toLong())
 
                 // Copies the metadata into the clone area
-                val lastLongIntIndex2 = metadata.size - 2
-                metadata[lastLongIntIndex2] = metadata[0]
-                metadata[lastLongIntIndex2 + 1] = ((Empty.toInt() shl 24) or (metadata[1] and 0x00FFFFFF))
+                val cloneIntIndex = (metadata.size shr 1) shl 1
+                metadata[cloneIntIndex] = metadata[0]
+                metadata[cloneIntIndex + 1] = ((Empty.toInt() shl 24) or (metadata[1] and 0x00FFFFFF))
 
                 index++
                 continue
@@ -1247,10 +1247,10 @@ internal inline fun convertMetadataForCleanup(metadata: IntArray, capacity: Int)
         metadata[intIndex] = (newGroup and 0xFFFFFFFFL).toInt()
         metadata[intIndex + 1] = ((newGroup shr 32) and 0xFFFFFFFFL).toInt()
     }
-    val lastLongIntIndex = (metadata.size shr 1) - 1
-    val lastIntIndex = lastLongIntIndex shl 1
+    val lastLongIndex = (metadata.size shr 1) - 1
+    val lastIntIndex = (lastLongIndex + 1) shl 1
     metadata[lastIntIndex] = ((Sentinel.toInt() shl 24) or (metadata[lastIntIndex] and 0x00FFFFFF))
-    metadata[lastIntIndex + 1] = metadata[lastIntIndex + 1]
+    metadata[lastIntIndex + 1] = ((Empty.toInt() shl 24) or (metadata[lastIntIndex + 1] and 0x00FFFFFF))
     metadata[lastIntIndex + 2] = metadata[0]
     metadata[lastIntIndex + 3] = metadata[1]
 }
