@@ -896,8 +896,9 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     public fun clear() {
         _size = 0
         if (metadataFlat.isNotEmpty()) {
+            // Fill with 0x80808080 to represent all bytes being 0x80 (Empty)
             for (i in metadataFlat.indices) {
-                metadataFlat[i] = 0x80  // All Empty
+                metadataFlat[i] = -0x7f7f7f80.toInt()
             }
             writeMetaByte(metadataFlat, _capacity, 0xFF)  // Sentinel
         }
@@ -1011,15 +1012,15 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         val capacity = _capacity
         val elements = elements
 
-        // Cleanup phase 1: convert Full->Deleted, Empty/Deleted/Sentinel->Empty
-        val numBytes = capacity + 1 + ClonedMetadataCount
-        for (i in 0 until numBytes) {
+        // Cleanup phase 1: convert Full->Deleted, Empty/Deleted->Empty
+        // Don't touch sentinel at position capacity (0xFF)
+        for (i in 0 until capacity) {
             val byte = readMetaByte(flat, i)
             if (byte < 0x80) {
                 // Full -> Deleted
                 writeMetaByte(flat, i, 0xFE)
             } else {
-                // Empty/Deleted/Sentinel -> Empty
+                // Empty/Deleted -> Empty
                 writeMetaByte(flat, i, 0x80)
             }
         }
@@ -1207,7 +1208,7 @@ private class MutableSetWrapper<E>(private val parent: MutableScatterSet<E>) :
 @PublishedApi internal inline fun writeMetaByte(flat: IntArray, offset: Int, byte: Int) {
     val idx = offset shr 2
     val shift = (offset and 3) * 8
-    flat[idx] = (flat[idx] and -(1 shl shift).inv()) or ((byte and 0xFF) shl shift)
+    flat[idx] = (flat[idx] and (0xFF shl shift).inv()) or ((byte and 0xFF) shl shift)
 }
 
 @PublishedApi internal inline fun readGroupFromFlat(flat: IntArray, offset: Int): Long {
