@@ -203,7 +203,8 @@ public sealed class ScatterSet<E> {
     internal inline fun forEachIndex(block: (index: Int) -> Unit) {
         contract { callsInPlace(block) }
         val flat = metadataFlat
-        val groupsCount = (metadataFlat.size + 7) shr 3
+        val byteLength = metadataFlat.size * 4
+        val groupsCount = (byteLength + 7) shr 3
         val lastGroupIndex = groupsCount - 2
 
         for (i in 0..lastGroupIndex) {
@@ -392,20 +393,27 @@ public sealed class ScatterSet<E> {
         val hash2 = h2(hash)
 
         val probeMask = _capacity
+        println("DEBUG findElementIndex: element=$element, hash=${Integer.toHexString(hash)}, hash1=${Integer.toHexString(hash1)}, hash2=${Integer.toHexString(hash2)}, probeMask=$probeMask")
+
         var probeOffset = hash1 and probeMask
         var probeIndex = 0
 
         while (true) {
-            val g = groupFromFlat(metadataFlat, probeOffset)
+            val g = groupFromFlat(metadataFlat, probeOffset * GroupWidth)
+            println("DEBUG findElementIndex: probeOffset=$probeOffset, g=${java.lang.Long.toHexString(g)}")
             var m = g.match(hash2)
             while (m.hasNext()) {
                 val index = (probeOffset + m.get()) and probeMask
+                println("DEBUG findElementIndex: match at index=$index, elements[index]=${elements[index]}")
                 if (elements[index] == element) {
                     return index
                 }
                 m = m.next()
             }
-            if (g.maskEmpty() != 0L) return -1
+            if (g.maskEmpty() != 0L) {
+                println("DEBUG findElementIndex: maskEmpty, returning -1")
+                return -1
+            }
             probeIndex += GroupWidth
             probeOffset = (probeOffset + probeIndex) and probeMask
         }
@@ -480,7 +488,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
                 EmptyIntArray
             } else {
                 val byteCount = (capacity + 1 + ClonedMetadataCount + 7) and 0x7.inv()
-                IntArray(byteCount).apply { fill(0x80) }  // All Empty (0x80)
+                IntArray((byteCount + 3) / 4).apply { fill(-0x7f7f7f80.toInt()) }  // All bytes = 0x80 (Empty)
             }
         // Write sentinel byte at position capacity
         writeMetaByte(metadataFlat, capacity, 0xFF)
@@ -499,6 +507,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      *   within the set.
      */
     public fun add(element: E): Boolean {
+        System.err.println("DEBUG add: element=$element, _capacity=$_capacity, metadataFlat.size=${metadataFlat.size}")
         val oldSize = size
         val index = findAbsoluteInsertIndex(element)
         elements[index] = element
@@ -511,6 +520,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      * @param element The element to add to the set.
      */
     public operator fun plusAssign(element: E) {
+        java.io.File("/tmp/debug_scatter.txt").appendText("plusAssign: element=$element, _capacity=$_capacity, metadataFlat.size=${metadataFlat.size}\n")
         val index = findAbsoluteInsertIndex(element)
         elements[index] = element
     }
@@ -921,7 +931,10 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         var probeOffset = hash1 and probeMask
         var probeIndex = 0
 
+        java.io.File("/tmp/debug_scatter.txt").appendText("findAbsoluteInsertIndex: probeOffset=$probeOffset, probeMask=$probeMask, flat.size=${metadataFlat.size}\n")
+
         while (true) {
+            java.io.File("/tmp/debug_scatter.txt").appendText("  loop: probeOffset=$probeOffset\n")
             val g = groupFromFlat(metadataFlat, probeOffset)
             var m = g.match(hash2)
             while (m.hasNext()) {
@@ -964,7 +977,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         var probeIndex = 0
 
         while (true) {
-            val g = groupFromFlat(metadataFlat, probeOffset)
+            val g = groupFromFlat(metadataFlat, probeOffset * GroupWidth)
             val m = g.maskEmptyOrDeleted()
             if (m != 0L) {
                 return (probeOffset + m.lowestBitSet()) and probeMask
