@@ -28,6 +28,7 @@ package androidx.collection
 
 import androidx.annotation.IntRange
 import androidx.collection.internal.EMPTY_OBJECTS
+import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
 import androidx.collection.internal.throwNoSuchElementExceptionForInline
 import kotlin.contracts.contract
@@ -117,15 +118,7 @@ public sealed class ScatterSet<E> {
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` elements, including when
     // the set is empty (see [EmptyGroup]).
-    // We use IntArray to store metadata because LongArray is not available in Kotlin/JS.
-    // Long[i] = Int[i*2] | (Int[i*2+1] << 32)
-    // EmptyIntArray mirrors EmptyGroup = longArrayOf(0xFF80808080808080, 0xFFFFFFFFFFFFFFFF)
-    @PublishedApi @JvmField internal var metadata: IntArray = intArrayOf(
-        0x80808080.toInt(),  // First Long low: bytes 0-3 = 0x80 (Empty)
-        0xff808080.toInt(),  // First Long high: bytes 4-7 = 0xFF (Sentinel), 0x80, 0x80, 0x80
-        -1,          // Second Long low: 0xFFFFFFFF
-        -1           // Second Long high: 0xFFFFFFFF
-    )
+    @PublishedApi @JvmField internal var metadata = EmptyGroupInt
 
     @PublishedApi @JvmField internal var elements: Array<Any?> = EMPTY_OBJECTS
 
@@ -207,13 +200,16 @@ public sealed class ScatterSet<E> {
     internal inline fun forEachIndex(block: (index: Int) -> Unit) {
         contract { callsInPlace(block) }
         val m = metadata
-        val cap = capacity
-        val endLongIndex = (cap + 7) shr 3
-        for (i in 0 until endLongIndex) {
-            val intIndex = i shl 1
-            var slot = ((m[intIndex + 1].toLong() shl 32) or (m[intIndex].toLong() and 0xFFFFFFFFL))
+        val lastIndex = m.size - 2 // We always have 0 or at least 2 elements
+
+        for (i in 0..lastIndex) {
+            var slot = m[i]
             if (slot.maskEmptyOrDeleted() != BitmaskMsb) {
-                val bitCount = if (i == endLongIndex - 1) 7 else 8
+                // Branch-less if (i == lastIndex) 7 else 8
+                // i - lastIndex returns a negative value when i < lastIndex,
+                // so 1 is set as the MSB. By inverting and shifting we get
+                // 0 when i < lastIndex, 1 otherwise.
+                val bitCount = 8 - ((i - lastIndex).inv() ushr 31)
                 for (j in 0 until bitCount) {
                     if (isFull(slot and 0xFFL)) {
                         val index = (i shl 3) + j
@@ -485,14 +481,11 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     private fun initializeMetadata(capacity: Int) {
         metadata =
             if (capacity == 0) {
-                intArrayOf(
-                    0x80808080.toInt(), 0xff808080.toInt(), -1, -1
-                )
+                EmptyGroupInt
             } else {
                 // Round up to the next multiple of 8 and find how many longs we need
-                // Each Long = 2 Ints, so IntArray size = 2 * number of Longs
-                val longCount = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                IntArray(longCount * 2).apply { fill(AllEmptyInt) }
+                val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
+                IntAsLongArray(size).apply { fill(AllEmpty) }
             }
         writeRawMetadata(metadata, capacity, Sentinel)
         initializeGrowth()
@@ -909,8 +902,8 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     /** Removes all elements from this set. */
     public fun clear() {
         _size = 0
-        if (_capacity > 0) {
-            metadata.fill(AllEmptyInt)
+        if (metadata !== EmptyGroupInt) {
+            metadata.fill(AllEmpty)
             writeRawMetadata(metadata, _capacity, Sentinel)
         }
         elements.fill(null, 0, _capacity)
@@ -1058,9 +1051,8 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
                 writeRawMetadata(metadata, index, hash2.toLong())
 
                 // Copies the metadata into the clone area
-                val cloneIntIndex = (metadata.size shr 1) shl 1
-                metadata[cloneIntIndex] = metadata[0]
-                metadata[cloneIntIndex + 1] = ((Empty.toInt() shl 24) or (metadata[1] and 0x00FFFFFF))
+                metadata[metadata.lastIndex] =
+                    (Empty shl 56) or (metadata[0] and 0x00ffffff_ffffffffL)
 
                 index++
                 continue
@@ -1091,9 +1083,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
             }
 
             // Copies the metadata into the clone area
-            val lastLongIntIndex = metadata.size - 2
-            metadata[lastLongIntIndex] = metadata[0]
-            metadata[lastLongIntIndex + 1] = ((Empty.toInt() shl 24) or (metadata[1] and 0x00FFFFFF))
+            metadata[metadata.lastIndex] = (Empty shl 56) or (metadata[0] and 0x00ffffff_ffffffffL)
 
             index++
         }
@@ -1218,72 +1208,3 @@ private class MutableSetWrapper<E>(private val parent: MutableScatterSet<E>) :
 
     override fun removeAll(elements: Collection<E>): Boolean = parent.removeAll(elements)
 }
-
-private val AllEmptyInt: Int = -0x7f7f7f80
-
-private inline fun LongArray.getLong(index: Int): Long = this[index]
-private inline fun LongArray.setLong(index: Int, value: Long) { this[index] = value }
-
-@PublishedApi
-internal inline fun readRawMetadata(data: IntArray, offset: Int): Long {
-    val intIndex = offset shr 2
-    val byteShift = (offset and 0x3) shl 3
-    return ((data[intIndex] ushr byteShift) and 0xFF).toLong()
-}
-
-internal inline fun writeRawMetadata(data: IntArray, offset: Int, value: Long) {
-    val intIndex = offset shr 2
-    val byteShift = (offset and 0x3) shl 3
-    data[intIndex] = (data[intIndex] and (0xFF shl byteShift).inv()) or ((value and 0xFF) shl byteShift).toInt()
-}
-
-internal inline fun convertMetadataForCleanup(metadata: IntArray, capacity: Int) {
-    val end = (capacity + 7) shr 3
-    for (i in 0 until end) {
-        val intIndex = i shl 1
-        val group = ((metadata[intIndex + 1].toLong() shl 32) or (metadata[intIndex].toLong() and 0xFFFFFFFFL))
-        val maskedGroup = group and BitmaskMsb
-        val newGroup = (maskedGroup.inv() + (maskedGroup ushr 7)) and BitmaskLsb.inv()
-        metadata[intIndex] = (newGroup and 0xFFFFFFFFL).toInt()
-        metadata[intIndex + 1] = ((newGroup shr 32) and 0xFFFFFFFFL).toInt()
-    }
-    val lastLongIndex = (metadata.size shr 1) - 1
-    val lastIntIndex = (lastLongIndex + 1) shl 1
-    metadata[lastIntIndex] = ((Sentinel.toInt() shl 24) or (metadata[lastIntIndex] and 0x00FFFFFF))
-    metadata[lastIntIndex + 1] = ((Empty.toInt() shl 24) or (metadata[lastIntIndex + 1] and 0x00FFFFFF))
-    metadata[lastIntIndex + 2] = metadata[0]
-    metadata[lastIntIndex + 3] = metadata[1]
-}
-
-internal inline fun writeMetadata(data: IntArray, capacity: Int, offset: Int, value: Long) {
-    writeRawMetadata(data, offset, value)
-    val cloneIndex =
-        ((offset - ClonedMetadataCount) and capacity) + (ClonedMetadataCount and capacity)
-    val cloneLongIndex = cloneIndex shr 3
-    val srcLongIndex = offset shr 3
-    val cloneIntIndex = cloneLongIndex shl 1
-    val srcIntIndex = srcLongIndex shl 1
-    data[cloneIntIndex] = data[srcIntIndex]
-    data[cloneIntIndex + 1] = data[srcIntIndex + 1]
-}
-
-internal inline fun isEmpty(metadata: IntArray, index: Int) =
-    readRawMetadata(metadata, index) == Empty
-
-internal inline fun isDeleted(metadata: IntArray, index: Int) =
-    readRawMetadata(metadata, index) == Deleted
-
-internal inline fun isFull(metadata: IntArray, index: Int): Boolean =
-    readRawMetadata(metadata, index) < 0x80L
-
-internal inline fun group(metadata: IntArray, offset: Int): Long {
-    val i = offset shr 3
-    val intIndex = i shl 1
-    val long0 = (metadata[intIndex].toLong() and 0xFFFFFFFFL) or ((metadata[intIndex + 1].toLong() and 0xFFFFFFFFL) shl 32)
-    val long1 = (metadata[intIndex + 2].toLong() and 0xFFFFFFFFL) or ((metadata[intIndex + 3].toLong() and 0xFFFFFFFFL) shl 32)
-    val b = (offset and 0x7) shl 3
-    val shiftedLong1 = if (b != 0) long1 shl (64 - b) else 0L
-    return (long0 ushr b) or shiftedLong1
-}
-
-private inline val IntArray.longSize: Int get() = size shr 1

@@ -20,8 +20,6 @@
 package androidx.collection
 
 import androidx.collection.internal.EMPTY_OBJECTS
-import androidx.collection.internal._intObjectMapFind
-import androidx.collection.internal._intObjectMapFindAvailableSlot
 import androidx.collection.internal.requirePrecondition
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
@@ -282,10 +280,6 @@ public sealed class IntObjectMap<V> {
     // `capacity + 1 + ClonedMetadataCount` entries, including when
     // the table is empty (see [EmptyGroup]).
     @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
-
-    // Parallel flat int32 view of metadata for C intrinsics (1 byte per slot, low 8 bits of each int).
-    // Length is rounded up to a multiple of 8. Kept in sync via writeRawMetadata/writeMetadata overloads.
-    @PublishedApi @JvmField internal var metadataFlat: IntArray = EmptyIntArray
 
     @PublishedApi @JvmField internal var keys: IntArray = EmptyIntArray
 
@@ -581,11 +575,10 @@ public sealed class IntObjectMap<V> {
      */
     internal inline fun findKeyIndex(key: Int): Int {
         val hash = hash(key)
-        val hash1 = h1(hash)
         val hash2 = h2(hash)
 
         val probeMask = _capacity
-        var probeOffset = hash1 and probeMask
+        var probeOffset = h1(hash) and probeMask
         var probeIndex = 0
 
         while (true) {
@@ -598,10 +591,16 @@ public sealed class IntObjectMap<V> {
                 }
                 m = m.next()
             }
-            if (g.maskEmpty() != 0L) return -1
+
+            if (g.maskEmpty() != 0L) {
+                break
+            }
+
             probeIndex += GroupWidth
             probeOffset = (probeOffset + probeIndex) and probeMask
         }
+
+        return -1
     }
 }
 
@@ -663,15 +662,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
                 val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
                 LongArray(size).apply { fill(AllEmpty) }
             }
-        // Parallel flat int32 view (1 byte per slot) for C intrinsics. Length = byte count rounded to 8.
-        metadataFlat =
-            if (capacity == 0) {
-                EmptyIntArray
-            } else {
-                val byteCount = (capacity + 1 + ClonedMetadataCount + 7) and 0x7.inv()
-                IntArray(byteCount).apply { fill(AllEmpty.toInt()) }
-            }
-        writeRawMetadata(metadata, metadataFlat, capacity, Sentinel)
+        writeRawMetadata(metadata, capacity, Sentinel)
         initializeGrowth()
     }
 
@@ -789,7 +780,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
 
         // TODO: We could just mark the entry as empty if there's a group
         //       window around this entry that was already empty
-        writeMetadata(metadata, metadataFlat, _capacity, index, Deleted)
+        writeMetadata(metadata, _capacity, index, Deleted)
         val oldValue = values[index]
         values[index] = null
 
@@ -801,8 +792,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
         _size = 0
         if (metadata !== EmptyGroup) {
             metadata.fill(AllEmpty)
-            metadataFlat.fill(AllEmpty.toInt())
-            writeRawMetadata(metadata, metadataFlat, _capacity, Sentinel)
+            writeRawMetadata(metadata, _capacity, Sentinel)
         }
         values.fill(null, 0, _capacity)
         initializeGrowth()
@@ -850,7 +840,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
 
         _size += 1
         growthLimit -= if (isEmpty(metadata, index)) 1 else 0
-        writeMetadata(metadata, metadataFlat, _capacity, index, hash2.toLong())
+        writeMetadata(metadata, _capacity, index, hash2.toLong())
 
         return index
     }
@@ -947,7 +937,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
 
             if (newProbeIndex == oldProbeIndex) {
                 val hash2 = h2(hash)
-                writeRawMetadata(metadata, metadataFlat, index, hash2.toLong())
+                writeRawMetadata(metadata, index, hash2.toLong())
 
                 // Copies the metadata into the clone area
                 metadata[metadata.lastIndex] =
@@ -961,8 +951,8 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
             if (m == Empty) {
                 // The target is empty so we can transfer directly
                 val hash2 = h2(hash)
-                writeRawMetadata(metadata, metadataFlat, targetIndex, hash2.toLong())
-                writeRawMetadata(metadata, metadataFlat, index, Empty)
+                writeRawMetadata(metadata, targetIndex, hash2.toLong())
+                writeRawMetadata(metadata, index, Empty)
 
                 keys[targetIndex] = keys[index]
                 keys[index] = 0
@@ -973,7 +963,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
                 // The target isn't empty so we use an empty slot denoted by
                 // swapIndex to perform the swap
                 val hash2 = h2(hash)
-                writeRawMetadata(metadata, metadataFlat, targetIndex, hash2.toLong())
+                writeRawMetadata(metadata, targetIndex, hash2.toLong())
 
                 val oldKey = keys[targetIndex]
                 keys[targetIndex] = keys[index]
@@ -1009,7 +999,6 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
         val newMetadata = metadata
         val newKeys = keys
         val newValues = values
-        val newMetadataFlat = metadataFlat
         val capacity = _capacity
 
         for (i in 0 until previousCapacity) {
@@ -1018,7 +1007,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
                 val hash = hash(previousKey)
                 val index = findFirstAvailableSlot(h1(hash))
 
-                writeMetadata(newMetadata, newMetadataFlat, capacity, index, h2(hash).toLong())
+                writeMetadata(newMetadata, capacity, index, h2(hash).toLong())
                 newKeys[index] = previousKey
                 newValues[index] = previousValues[i]
             }

@@ -27,6 +27,7 @@
 package androidx.collection
 
 import androidx.collection.internal.EMPTY_OBJECTS
+import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmOverloads
@@ -179,6 +180,14 @@ internal val EmptyGroup =
         -0x7f7f7f7f_7f7f7f01L, // Sentinel, Empty, Empty... or 0xFF80808080808080UL
         -1L // 0xFFFFFFFFFFFFFFFFUL
     )
+
+@JvmField
+internal val EmptyGroupInt = IntAsLongArray(intArrayOf(
+    0x80808080.toInt(),          // low 32 bits of 0xFF80808080808080
+    0xFF808080.toInt(),          // high 32 bits of 0xFF80808080808080
+    -1,                  // low 32 bits of -1L (0xFFFFFFFF)
+    -1                   // high 32 bits of -1L (0xFFFFFFFF)
+))
 
 // Width of a group, in bytes. Since we can only use types as large as
 // Long we must fit our metadata bytes in a 64-bit word or smaller, which
@@ -1156,6 +1165,22 @@ internal inline fun convertMetadataForCleanup(metadata: LongArray, capacity: Int
     metadata[lastIndex] = metadata[0]
 }
 
+internal inline fun convertMetadataForCleanup(metadata: IntAsLongArray, capacity: Int) {
+    val end = (capacity + 7) shr 3
+    for (i in 0 until end) {
+        // Converts Sentinel and Deleted to Empty, and Full to Deleted
+        val maskedGroup = metadata[i] and BitmaskMsb
+        metadata[i] = (maskedGroup.inv() + (maskedGroup ushr 7)) and BitmaskLsb.inv()
+    }
+
+    val lastIndex = metadata.lastIndex
+    // Restores the sentinel that we overwrote above
+    metadata[lastIndex - 1] =
+        (Sentinel shl 56) or (metadata[lastIndex - 1] and 0x00ffffff_ffffffffL)
+    // Copies the metadata into the clone area
+    metadata[lastIndex] = metadata[0]
+}
+
 /**
  * Returns the hash code of [k]. The hash spreads low bits to to minimize collisions in high 25-bits
  * that are used for probing.
@@ -1220,6 +1245,13 @@ internal inline fun readRawMetadata(data: LongArray, offset: Int): Long {
     return (data[offset shr 3] shr ((offset and 0x7) shl 3)) and 0xff
 }
 
+@PublishedApi
+internal inline fun readRawMetadata(data: IntAsLongArray, offset: Int): Long {
+    // Take the Long at index `offset / 8` and shift by `offset % 8`
+    // A longer explanation can be found in [group()].
+    return (data[offset shr 3] shr ((offset and 0x7) shl 3)) and 0xff
+}
+
 /**
  * Writes a single byte into the long array at the specified [offset] in *bytes* and copies it, if
  * necessary, into the cloned bytes section at the end of the array.
@@ -1243,6 +1275,13 @@ internal inline fun writeMetadata(data: LongArray, capacity: Int, offset: Int, v
     data[cloneIndex shr 3] = data[offset shr 3]
 }
 
+internal inline fun writeMetadata(data: IntAsLongArray, capacity: Int, offset: Int, value: Long) {
+    writeRawMetadata(data, offset, value)
+    val cloneIndex =
+        ((offset - ClonedMetadataCount) and capacity) + (ClonedMetadataCount and capacity)
+    data[cloneIndex shr 3] = data[offset shr 3]
+}
+
 /**
  * Writes a single byte into the long array at the specified [offset] in *bytes*.
  *
@@ -1258,40 +1297,28 @@ internal inline fun writeRawMetadata(data: LongArray, offset: Int, value: Long) 
     data[i] = (data[i] and (0xffL shl b).inv()) or (value shl b)
 }
 
-/**
- * Same as [writeRawMetadata] but also updates the parallel Int32Array flat view
- * used by C intrinsics. The flat array stores each metadata byte in the low 8 bits
- * of `flat[offset]`. When `flat` is the empty array (capacity == 0) we skip the
- * flat write to avoid ArrayIndexOutOfBoundsException — the empty case is rare and
- * the host-side (non-JS) code never reads `flat` anyway.
- */
-internal inline fun writeRawMetadata(data: LongArray, flat: IntArray, offset: Int, value: Long) {
-    writeRawMetadata(data, offset, value)
-    if (flat.size > 0) flat[offset] = value.toInt()
-}
-
-/**
- * Same as [writeMetadata] but also updates the parallel Int32Array flat view.
- */
-internal inline fun writeMetadata(data: LongArray, flat: IntArray, capacity: Int, offset: Int, value: Long) {
-    writeRawMetadata(data, flat, offset, value)
-
-    // Mirroring (mirror of the non-flat overload below).
-    if (flat.size > 0) {
-        val cloneIndex =
-            ((offset - ClonedMetadataCount) and capacity) + (ClonedMetadataCount and capacity)
-        data[cloneIndex shr 3] = data[offset shr 3]
-        flat[cloneIndex] = value.toInt()
-    }
+internal inline fun writeRawMetadata(data: IntAsLongArray, offset: Int, value: Long) {
+    val i = offset shr 3
+    val b = (offset and 0x7) shl 3
+    data[i] = (data[i] and (0xffL shl b).inv()) or (value shl b)
 }
 
 internal inline fun isEmpty(metadata: LongArray, index: Int) =
     readRawMetadata(metadata, index) == Empty
 
+internal inline fun isEmpty(metadata: IntAsLongArray, index: Int) =
+    readRawMetadata(metadata, index) == Empty
+
 internal inline fun isDeleted(metadata: LongArray, index: Int) =
     readRawMetadata(metadata, index) == Deleted
 
+internal inline fun isDeleted(metadata: IntAsLongArray, index: Int) =
+    readRawMetadata(metadata, index) == Deleted
+
 internal inline fun isFull(metadata: LongArray, index: Int): Boolean =
+    readRawMetadata(metadata, index) < 0x80L
+
+internal inline fun isFull(metadata: IntAsLongArray, index: Int): Boolean =
     readRawMetadata(metadata, index) < 0x80L
 
 @PublishedApi internal inline fun isFull(value: Long): Boolean = value < 0x80L
@@ -1396,6 +1423,12 @@ internal inline fun group(metadata: LongArray, offset: Int): Group {
     //
     // Note: since b is only ever 0, 8, 16, 24, 32, 48, 56, or 64, we don't
     // need to shift by 63, we could shift by only 5
+    val i = offset shr 3
+    val b = (offset and 0x7) shl 3
+    return (metadata[i] ushr b) or (metadata[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
+}
+
+internal inline fun group(metadata: IntAsLongArray, offset: Int): Group {
     val i = offset shr 3
     val b = (offset and 0x7) shl 3
     return (metadata[i] ushr b) or (metadata[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
