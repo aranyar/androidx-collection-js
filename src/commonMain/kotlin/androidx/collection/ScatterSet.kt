@@ -119,10 +119,8 @@ public sealed class ScatterSet<E> {
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` elements, including when
     // the set is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
-
-    // Parallel flat int32 view of metadata for C intrinsics (1 byte per slot, low 8 bits of each int).
-    // Length is rounded up to a multiple of 8. Kept in sync via writeRawMetadata/writeMetadata overloads.
+    // We use ONLY metadataFlat (IntArray) for all operations - it's the flat byte array
+    // that C intrinsics expect.
     @PublishedApi @JvmField internal var metadataFlat: IntArray = EmptyIntArray
 
     @PublishedApi @JvmField internal var elements: Array<Any?> = EMPTY_OBJECTS
@@ -204,23 +202,19 @@ public sealed class ScatterSet<E> {
     @PublishedApi
     internal inline fun forEachIndex(block: (index: Int) -> Unit) {
         contract { callsInPlace(block) }
-        val m = metadata
-        val lastIndex = m.size - 2 // We always have 0 or at least 2 elements
+        val flat = metadataFlat
+        val groupsCount = (metadataFlat.size + 7) shr 3
+        val lastGroupIndex = groupsCount - 2
 
-        for (i in 0..lastIndex) {
-            var slot = m[i]
-            if (slot.maskEmptyOrDeleted() != BitmaskMsb) {
-                // Branch-less if (i == lastIndex) 7 else 8
-                // i - lastIndex returns a negative value when i < lastIndex,
-                // so 1 is set as the MSB. By inverting and shifting we get
-                // 0 when i < lastIndex, 1 otherwise.
-                val bitCount = 8 - ((i - lastIndex).inv() ushr 31)
+        for (i in 0..lastGroupIndex) {
+            var g = groupFromFlat(flat, i shl 3)
+            if (g.maskEmptyOrDeleted() != BitmaskMsb) {
+                val bitCount = 8 - ((i - lastGroupIndex).inv() ushr 31)
                 for (j in 0 until bitCount) {
-                    if (isFull(slot and 0xFFL)) {
-                        val index = (i shl 3) + j
-                        block(index)
+                    if (isFull(g and 0xFFL)) {
+                        block((i shl 3) + j)
                     }
-                    slot = slot shr 8
+                    g = g shr 8
                 }
                 if (bitCount != 8) return
             }
@@ -402,7 +396,7 @@ public sealed class ScatterSet<E> {
         var probeIndex = 0
 
         while (true) {
-            val g = group(metadata, probeOffset)
+            val g = groupFromFlat(metadataFlat, probeOffset)
             var m = g.match(hash2)
             while (m.hasNext()) {
                 val index = (probeOffset + m.get()) and probeMask
@@ -480,23 +474,16 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     }
 
     private fun initializeMetadata(capacity: Int) {
-        metadata =
-            if (capacity == 0) {
-                EmptyGroup
-            } else {
-                // Round up to the next multiple of 8 and find how many longs we need
-                val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                LongArray(size).apply { fill(AllEmpty) }
-            }
-        // Parallel flat int32 view (1 byte per slot) for C intrinsics. Length = byte count rounded to 8.
+        // metadataFlat is the only metadata array - flat byte view for C intrinsics
         metadataFlat =
             if (capacity == 0) {
                 EmptyIntArray
             } else {
                 val byteCount = (capacity + 1 + ClonedMetadataCount + 7) and 0x7.inv()
-                IntArray(byteCount).apply { fill(AllEmpty.toInt()) }
+                IntArray(byteCount).apply { fill(0x80) }  // All Empty (0x80)
             }
-        writeRawMetadata(metadata, metadataFlat, capacity, Sentinel)
+        // Write sentinel byte at position capacity
+        writeMetaByte(metadataFlat, capacity, 0xFF)
         initializeGrowth()
     }
 
@@ -901,19 +888,18 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     @PublishedApi
     internal fun removeElementAt(index: Int) {
         _size -= 1
-
-        // TODO: We could just mark the element as empty if there's a group
-        //       window around this element that was already empty
-        writeMetadata(metadata, metadataFlat, _capacity, index, Deleted)
+        writeMetaByte(metadataFlat, index, 0xFE)  // Deleted
         elements[index] = null
     }
 
     /** Removes all elements from this set. */
     public fun clear() {
         _size = 0
-        if (metadata !== EmptyGroup) {
-            metadata.fill(AllEmpty); metadataFlat.fill(AllEmpty.toInt())
-            writeRawMetadata(metadata, metadataFlat, _capacity, Sentinel)
+        if (metadataFlat.isNotEmpty()) {
+            for (i in metadataFlat.indices) {
+                metadataFlat[i] = 0x80  // All Empty
+            }
+            writeMetaByte(metadataFlat, _capacity, 0xFF)  // Sentinel
         }
         elements.fill(null, 0, _capacity)
         initializeGrowth()
@@ -935,7 +921,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         var probeIndex = 0
 
         while (true) {
-            val g = group(metadata, probeOffset)
+            val g = groupFromFlat(metadataFlat, probeOffset)
             var m = g.match(hash2)
             while (m.hasNext()) {
                 val index = (probeOffset + m.get()) and probeMask
@@ -955,14 +941,14 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
 
         // No existing element. Find first available slot (Empty or Deleted).
         var index = findFirstAvailableSlot(hash1)
-        if (growthLimit == 0 && !isDeleted(metadata, index)) {
+        if (growthLimit == 0 && !isDeletedFlat(metadataFlat, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)
         }
 
         _size += 1
-        growthLimit -= if (isEmpty(metadata, index)) 1 else 0
-        writeMetadata(metadata, metadataFlat, _capacity, index, hash2.toLong())
+        growthLimit -= if (isEmptyFlat(metadataFlat, index)) 1 else 0
+        writeMetaByte(metadataFlat, index, hash2)
 
         return index
     }
@@ -977,7 +963,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         var probeIndex = 0
 
         while (true) {
-            val g = group(metadata, probeOffset)
+            val g = groupFromFlat(metadataFlat, probeOffset)
             val m = g.maskEmptyOrDeleted()
             if (m != 0L) {
                 return (probeOffset + m.lowestBitSet()) and probeMask
@@ -1021,80 +1007,71 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
 
     // Internal to prevent inlining
     internal fun dropDeletes() {
-        val metadata = metadata
+        val flat = metadataFlat
         val capacity = _capacity
         val elements = elements
 
-        // Converts Sentinel and Deleted to Empty, and Full to Deleted
-        convertMetadataForCleanup(metadata, capacity)
+        // Cleanup phase 1: convert Full->Deleted, Empty/Deleted/Sentinel->Empty
+        val numBytes = capacity + 1 + ClonedMetadataCount
+        for (i in 0 until numBytes) {
+            val byte = readMetaByte(flat, i)
+            if (byte < 0x80) {
+                // Full -> Deleted
+                writeMetaByte(flat, i, 0xFE)
+            } else {
+                // Empty/Deleted/Sentinel -> Empty
+                writeMetaByte(flat, i, 0x80)
+            }
+        }
 
         var index = 0
 
         // Drop deleted items and re-hashes surviving entries
         while (index != capacity) {
-            var m = readRawMetadata(metadata, index)
-            // Formerly Deleted entry, we can use it as a swap spot
-            if (m == Empty) {
+            val m = readMetaByte(flat, index)
+            if (m == 0x80) {
+                // Empty - skip
                 index++
                 continue
             }
 
-            // Formerly Full entries are now marked Deleted. If we see an
-            // entry that's not marked Deleted, we can ignore it completely
-            if (m != Deleted) {
+            if (m != 0xFE) {
+                // Full (hash2) - skip
                 index++
                 continue
             }
 
+            // m == Deleted - need to rehash this element
             val hash = hash(elements[index])
             val hash1 = h1(hash)
             val targetIndex = findFirstAvailableSlot(hash1)
 
-            // Test if the current index (i) and the new index (targetIndex) fall
-            // within the same group based on the hash. If the group doesn't change,
-            // we don't move the entry
             val probeOffset = hash1 and capacity
             val newProbeIndex = ((targetIndex - probeOffset) and capacity) / GroupWidth
             val oldProbeIndex = ((index - probeOffset) and capacity) / GroupWidth
 
             if (newProbeIndex == oldProbeIndex) {
                 val hash2 = h2(hash)
-                writeRawMetadata(metadata, metadataFlat, index, hash2.toLong())
-
-                // Copies the metadata into the clone area
-                metadata[metadata.lastIndex] =
-                    (Empty shl 56) or (metadata[0] and 0x00ffffff_ffffffffL)
-
+                writeMetaByte(flat, index, hash2)
                 index++
                 continue
             }
 
-            m = readRawMetadata(metadata, targetIndex)
-            if (m == Empty) {
-                // The target is empty so we can transfer directly
+            val targetByte = readMetaByte(flat, targetIndex)
+            if (targetByte == 0x80) {
                 val hash2 = h2(hash)
-                writeRawMetadata(metadata, metadataFlat, targetIndex, hash2.toLong())
-                writeRawMetadata(metadata, metadataFlat, index, Empty)
-
+                writeMetaByte(flat, targetIndex, hash2)
+                writeMetaByte(flat, index, 0x80)
                 elements[targetIndex] = elements[index]
                 elements[index] = null
-            } else /* m == Deleted */ {
-                // The target isn't empty so we use an empty slot denoted by
-                // swapIndex to perform the swap
+            } else {
                 val hash2 = h2(hash)
-                writeRawMetadata(metadata, metadataFlat, targetIndex, hash2.toLong())
-
+                writeMetaByte(flat, targetIndex, hash2)
                 val oldElement = elements[targetIndex]
                 elements[targetIndex] = elements[index]
                 elements[index] = oldElement
-
-                // Since we exchanged two slots we must repeat the process with
-                // element we just moved in the current location
                 index--
             }
-
-            // Copies the metadata into the clone area
-            metadata[metadata.lastIndex] = (Empty shl 56) or (metadata[0] and 0x00ffffff_ffffffffL)
 
             index++
         }
@@ -1104,24 +1081,22 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
 
     // Internal to prevent inlining
     internal fun resizeStorage(newCapacity: Int) {
-        val previousMetadata = metadata
+        val previousFlat = metadataFlat
         val previousElements = elements
         val previousCapacity = _capacity
 
         initializeStorage(newCapacity)
 
-        val newMetadata = metadata
-        val newMetadataFlat = metadataFlat
+        val newFlat = metadataFlat
         val newElements = elements
         val capacity = _capacity
 
         for (i in 0 until previousCapacity) {
-            if (isFull(previousMetadata, i)) {
+            if (isFullFlat(previousFlat, i)) {
                 val previousElement = previousElements[i]
                 val hash = hash(previousElement)
                 val index = findFirstAvailableSlot(h1(hash))
-
-                writeMetadata(newMetadata, newMetadataFlat, capacity, index, h2(hash).toLong())
+                writeMetaByte(newFlat, index, h2(hash))
                 newElements[index] = previousElement
             }
         }
@@ -1220,3 +1195,44 @@ private class MutableSetWrapper<E>(private val parent: MutableScatterSet<E>) :
 
     override fun removeAll(elements: Collection<E>): Boolean = parent.removeAll(elements)
 }
+
+// ============================================================================
+// Helpers to read/write metadata directly from metadataFlat (IntArray)
+// These treat metadataFlat as a flat byte array for C intrinsic compatibility
+// ============================================================================
+
+@PublishedApi internal inline fun readMetaByte(flat: IntArray, offset: Int): Int =
+    (flat[offset shr 2] ushr ((offset and 3) * 8)) and 0xFF
+
+@PublishedApi internal inline fun writeMetaByte(flat: IntArray, offset: Int, byte: Int) {
+    val idx = offset shr 2
+    val shift = (offset and 3) * 8
+    flat[idx] = (flat[idx] and -(1 shl shift).inv()) or ((byte and 0xFF) shl shift)
+}
+
+@PublishedApi internal inline fun readGroupFromFlat(flat: IntArray, offset: Int): Long {
+    var g: Long = 0
+    for (i in 0 until 8) {
+        g = g or (readMetaByte(flat, offset + i).toLong() shl (i * 8))
+    }
+    return g
+}
+
+@PublishedApi internal inline fun writeGroupToFlat(flat: IntArray, offset: Int, value: Long) {
+    for (i in 0 until 8) {
+        writeMetaByte(flat, offset + i, ((value ushr (i * 8)) and 0xFF).toInt())
+    }
+}
+
+@PublishedApi internal inline fun groupFromFlat(flat: IntArray, offset: Int): Long {
+    return readGroupFromFlat(flat, offset)
+}
+
+@PublishedApi internal inline fun isEmptyFlat(flat: IntArray, index: Int): Boolean =
+    readMetaByte(flat, index) == 0x80
+
+@PublishedApi internal inline fun isDeletedFlat(flat: IntArray, index: Int): Boolean =
+    readMetaByte(flat, index) == 0xFE
+
+@PublishedApi internal inline fun isFullFlat(flat: IntArray, index: Int): Boolean =
+    readMetaByte(flat, index) < 0x80
