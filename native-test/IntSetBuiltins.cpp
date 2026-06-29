@@ -42,13 +42,12 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #define DBG_TAG "IntSetBuiltin"
-// #define DBG_LOGI(...) __android_log_print(ANDROID_LOG_INFO, DBG_TAG, __VA_ARGS__)
-// #define DBG_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, DBG_TAG, __VA_ARGS__)
-#define DBG_LOGI(...) do {} while (0)
-#define DBG_LOGE(...) do {} while (0)
+#define DBG_LOGI(...) __android_log_print(ANDROID_LOG_INFO, DBG_TAG, __VA_ARGS__)
+#define DBG_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, DBG_TAG, __VA_ARGS__)
 #else
-#define DBG_LOGI(...) do {} while (0)
-#define DBG_LOGE(...) do {} while (0)
+#include <stdio.h>
+#define DBG_LOGI(...) do { fprintf(stderr, "[IntSetBuiltin] "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); fflush(stderr); } while (0)
+#define DBG_LOGE(...) do { fprintf(stderr, "[IntSetBuiltin ERROR] "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); fflush(stderr); } while (0)
 #endif
 
 #define META_EMPTY 0x80
@@ -119,12 +118,20 @@ static inline uint64_t load_group(const int32_t* flat, int32_t offset, int32_t c
     uint64_t lo = ((uint64_t)(uint32_t)flat[i * 2 + 1] << 32) | (uint32_t)flat[i * 2];
     uint64_t hi = ((uint64_t)(uint32_t)flat[(i + 1) * 2 + 1] << 32) | (uint32_t)flat[(i + 1) * 2];
 
+    DBG_LOGI("C load_group: offset=%d capacity=%d i=%d b=%d", offset, capacity, i, b);
+    DBG_LOGI("  flat[%d]=%d flat[%d]=%d flat[%d]=%d flat[%d]=%d",
+             i*2, flat[i*2], i*2+1, flat[i*2+1], (i+1)*2, flat[(i+1)*2], (i+1)*2+1, flat[(i+1)*2+1]);
+    DBG_LOGI("  lo=0x%016llx hi=0x%016llx", (unsigned long long)lo, (unsigned long long)hi);
+
     // Combine the two words to get the 8 bytes starting at byte offset 'offset'.
+    uint64_t result;
     if (b == 0) {
-        return lo;
+        result = lo;
     } else {
-        return (lo >> b) | (hi << (64 - b));
+        result = (lo >> b) | (hi << (64 - b));
     }
+    DBG_LOGI("  C load_group -> 0x%016llx", (unsigned long long)result);
+    return result;
 }
 
 // Match the 8-byte group against hash2 (0..127). Each set bit 8k+7 indicates
@@ -189,20 +196,31 @@ static inline int32_t first_empty_or_deleted(uint64_t g, int32_t probeOffset, in
 // ============================================================================
 
 // Helper: call kotlin.equals(a, b) from C
+// Helper: Kotlin-compatible equality for Any?
 static int kotlin_equals(JSContext *ctx, JSValueConst a, JSValueConst b) {
-    JSValue global = JS_GetGlobalObject(ctx);
-    JSValue kotlin = JS_GetPropertyStr(ctx, global, "kotlin");
-    JSValue equals = JS_GetPropertyStr(ctx, kotlin, "equals");
-    JSValue args[2] = { JS_DupValue(ctx, a), JS_DupValue(ctx, b) };
-    JSValue result = JS_Call(ctx, equals, JS_UNDEFINED, 2, args);
+    // Primitives, null, undefined: use strict equality
+    if (JS_VALUE_GET_TAG(a) != JS_TAG_OBJECT) {
+        return JS_StrictEq(ctx, a, b);
+    }
+
+    // a is an object: try a.equals(b)
+    JSValue equals = JS_GetPropertyStr(ctx, a, "equals");
+    if (JS_IsException(equals)) {
+        JS_FreeValue(ctx, equals);
+        return 0;
+    }
+    if (JS_VALUE_GET_TAG(equals) != JS_TAG_OBJECT) {
+        JS_FreeValue(ctx, equals);
+        return 0; // No equals method → not equal
+    }
+
+    JSValue args[1] = { JS_DupValue(ctx, b) };
+    JSValue result = JS_Call(ctx, equals, a, 1, args);
     JS_FreeValue(ctx, args[0]);
-    JS_FreeValue(ctx, args[1]);
     JS_FreeValue(ctx, equals);
-    JS_FreeValue(ctx, kotlin);
-    JS_FreeValue(ctx, global);
     if (JS_IsException(result)) {
         JS_FreeValue(ctx, result);
-        return 0;  // treat as not equal on exception
+        return 0;
     }
     int ret = JS_VALUE_GET_BOOL(result);
     JS_FreeValue(ctx, result);
@@ -222,6 +240,8 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
 
+    DBG_LOGI("C _scatterSetFind: capacity=%d hash=%d hash2=%d", capacity, hash, hash2);
+
     int32_t mask = capacity;                       // use capacity (not capacity-1)
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
@@ -229,6 +249,8 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     while (1) {
         uint64_t g = load_group(meta, probeOffset, capacity);
         uint64_t m = match_hash2(g, hash2);
+        DBG_LOGI("  probeOffset=%d g=0x%016llx m=0x%016llx hash2=%d",
+                 probeOffset, (unsigned long long)g, (unsigned long long)m, hash2);
         while (m != 0) {
             int32_t bitIdx = __builtin_ctzll(m);
             int32_t byteInGroup = bitIdx >> 3;
@@ -240,6 +262,7 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
             int eq = kotlin_equals(ctx, slotVal, element);
             JS_FreeValue(ctx, slotVal);
             if (eq) {
+                DBG_LOGI("  C _scatterSetFind -> index=%d", index);
                 return JS_NewInt32(ctx, index);
             }
             m &= m - 1;
@@ -250,6 +273,7 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
         probeIndex += 8;
         probeOffset = (probeOffset + probeIndex) & mask;
     }
+    DBG_LOGI("  C _scatterSetFind -> -1");
     return JS_NewInt32(ctx, -1);
 }
 
