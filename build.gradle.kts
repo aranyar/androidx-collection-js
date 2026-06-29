@@ -11,12 +11,51 @@ plugins {
 group = "androidx.collection"
 version = "1.5.0-js-0.1"
 
+val quickjsSourceDir = file("native-test/quickjs")
+
+tasks.register<Exec>("buildQjs") {
+    group = "build"
+    description = "Build qjs executable from source"
+
+    workingDir = quickjsSourceDir
+    commandLine("sh", "-c", "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build")
+}
+
+tasks.register<Exec>("jsQjsTest") {
+    group = "verification"
+    description = "Run JS tests with qjs"
+
+    dependsOn("jsBrowserDevelopmentWebpack")
+
+    val project = project
+    val mainDir = file("${project.layout.buildDirectory.get().asFile.path}/compileSync/js/main/developmentExecutable")
+    val webpackConfig = file("native-test/webpack-test.config.js")
+    val bundleOutputDir = file("${mainDir.path}/dist")
+    val qjsBinary = file("${quickjsSourceDir}/qjs")
+
+    workingDir = mainDir
+    commandLine("sh", "-c", """
+        cp '${webpackConfig.path}' webpack.config.js
+        mkdir -p dist
+        node ${project.layout.buildDirectory.get().asFile.path}/js/node_modules/webpack/bin/webpack.js --config webpack.config.js
+        ${qjsBinary.absolutePath} ${bundleOutputDir.absolutePath}/collection-bundle.js
+    """)
+}
+
+
+
 kotlin {
     applyDefaultHierarchyTemplate()
 
     jvm()
     js {
-        browser()
+        browser {
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
+        }
         nodejs()
         binaries.executable()
     }
