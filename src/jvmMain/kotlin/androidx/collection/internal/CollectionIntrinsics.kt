@@ -20,11 +20,11 @@ internal actual fun _scatterSetFind(
     hash: Int,
     hash2: Int
 ): Int {
-    val mask = capacity - 1
+    val mask = capacity
     var probeOffset = h1(hash) and mask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         var m = match(g, hash2)
         while (m != 0L) {
             val byteInGroup = m.countTrailingZeroBits() shr 3
@@ -58,7 +58,7 @@ internal actual fun _scatterSetAdd(
     var insertSlot = -1
 
     while (true) {
-        val g = loadGroup(metadata, probeOffset, capacity)
+        val g = loadGroup(metadata, probeOffset)
         var m = match(g, hash2)
         while (m != 0L) {
             val byteInGroup = m.countTrailingZeroBits() shr 3
@@ -105,7 +105,7 @@ internal actual fun _scatterSetRemove(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         var m = match(g, hash2)
         while (m != 0L) {
             val byteInGroup = m.countTrailingZeroBits() shr 3
@@ -124,15 +124,11 @@ internal actual fun _scatterSetRemove(
     return -1
 }
 
-private fun loadGroup(metadata: IntArray, offset: Int, capacity: Int): Long {
-    var g = 0L
-    val mask = capacity - 1
-    for (i in 0 until 8) {
-        val slot = (offset + i) and mask
-        val byte = readByte(metadata, slot)
-        g = g or (byte shl (i * 8))
-    }
-    return g
+private fun loadGroup(metadata: IntArray, offset: Int): Long {
+    val i = offset shr 3
+    val b = (offset and 0x7) shl 3
+    val asLong = IntAsLongArray(metadata)
+    return (asLong[i] ushr b) or (asLong[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
 }
 
 private fun match(g: Long, hash2: Int): Long {

@@ -110,27 +110,21 @@ static inline void write_meta_byte(int32_t* flat, int32_t offset, int32_t byte) 
   flat[offset] = byte & 0xFF;
 }
 
-// Build a uint64 with byte 0..7 = flat[offset]..flat[offset+7] (wrapping mod capacity).
-// capacity must be a power of 2 (>= 8).
-// Note: flat is IntAsLongArray.data where each 64-bit slot occupies 2 consecutive ints.
-// For slot s: flat[2*s] = low 32 bits, flat[2*s+1] = high 32 bits.
 static inline uint64_t load_group(const int32_t* flat, int32_t offset, int32_t capacity) {
-  uint64_t g = 0;
-  for (int i = 0; i < 8; i++) {
-    int32_t slot = (offset + i) & (capacity - 1);  // slot index in [0, capacity)
-    int32_t dataIdx = slot * 2;  // index into flat for low 32 bits
-    uint64_t slotVal = (((uint64_t)(uint32_t)flat[dataIdx + 1]) << 32) | ((uint64_t)(uint32_t)flat[dataIdx] & 0xFFFFFFFFULL);
-    // Extract all 8 bytes from slotVal and place in g at byte positions i*8 to i*8+7
-    g |= (slotVal & 0xFFULL) << (i * 8);           // byte 0 of slot -> position i*8
-    g |= ((slotVal >> 8) & 0xFFULL) << (i * 8 + 1);  // byte 1 -> position i*8+1
-    g |= ((slotVal >> 16) & 0xFFULL) << (i * 8 + 2);
-    g |= ((slotVal >> 24) & 0xFFULL) << (i * 8 + 3);
-    g |= ((slotVal >> 32) & 0xFFULL) << (i * 8 + 4);
-    g |= ((slotVal >> 40) & 0xFFULL) << (i * 8 + 5);
-    g |= ((slotVal >> 48) & 0xFFULL) << (i * 8 + 6);
-    g |= ((slotVal >> 56) & 0xFFULL) << (i * 8 + 7);
-  }
-  return g;
+    // Each 64‑bit word is stored as two consecutive 32‑bit ints (low word first).
+    int32_t i = offset >> 3;          // word index (8 bytes per word)
+    int32_t b = (offset & 0x7) << 3;  // bit offset within the word (0, 8, 16, …, 56)
+
+    // Read two 64‑bit words without alignment issues (safe even if flat is not 8‑byte aligned).
+    uint64_t lo = ((uint64_t)(uint32_t)flat[i * 2 + 1] << 32) | (uint32_t)flat[i * 2];
+    uint64_t hi = ((uint64_t)(uint32_t)flat[(i + 1) * 2 + 1] << 32) | (uint32_t)flat[(i + 1) * 2];
+
+    // Combine the two words to get the 8 bytes starting at byte offset 'offset'.
+    if (b == 0) {
+        return lo;
+    } else {
+        return (lo >> b) | (hi << (64 - b));
+    }
 }
 
 // Match the 8-byte group against hash2 (0..127). Each set bit 8k+7 indicates
@@ -228,16 +222,11 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
 
-    int32_t mask = capacity - 1;
+    int32_t mask = capacity;                       // use capacity (not capacity-1)
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
-    int32_t iter = 0;
 
     while (1) {
-        iter++;
-        if (iter > 100) {
-            return JS_NewInt32(ctx, -1);
-        }
         uint64_t g = load_group(meta, probeOffset, capacity);
         uint64_t m = match_hash2(g, hash2);
         while (m != 0) {
@@ -279,7 +268,7 @@ static JSValue c_scatterset_add(JSContext *ctx, JSValueConst this_val, int argc,
     int32_t* wasEmpty = get_int32_data(ctx, argv[8], "wasEmpty");
     if (!wasEmpty) return JS_EXCEPTION;
 
-    int32_t mask = capacity - 1;
+    int32_t mask = capacity;                       // FIX: use capacity
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
     int32_t insertSlot = -1;
@@ -311,7 +300,6 @@ static JSValue c_scatterset_add(JSContext *ctx, JSValueConst this_val, int argc,
         probeOffset = (probeOffset + probeIndex) & mask;
     }
 
-    // Read old metadata to determine if slot was Empty
     int32_t oldByte = read_meta_byte(meta, insertSlot);
     int isEmpty = (oldByte == META_EMPTY);
 
@@ -335,7 +323,7 @@ static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int ar
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
 
-    int32_t mask = capacity - 1;
+    int32_t mask = capacity;                       // FIX: use capacity
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
 
