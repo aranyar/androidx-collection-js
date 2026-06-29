@@ -6,6 +6,8 @@
 #include "quickjs.h"
 #include "quickjs-libc.h"
 
+extern "C" void js_intset_register_builtins(JSContext *ctx);
+
 static int eval_buf(JSContext *ctx, const void *buf, int buf_len,
                     const char *filename, int eval_flags)
 {
@@ -88,6 +90,8 @@ int main(int argc, char **argv)
 
     rt = JS_NewRuntime();
     ctx = JS_NewContext(rt);
+
+    js_intset_register_builtins(ctx);
 
     js_std_init_handlers(rt);
     js_std_add_helpers(ctx, argc - optind, argv + optind);

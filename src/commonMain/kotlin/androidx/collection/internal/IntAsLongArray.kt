@@ -4,7 +4,7 @@ package androidx.collection.internal
  * A drop‑in replacement for [LongArray] that stores each 64‑bit value as two 32‑bit integers
  * in an internal [IntArray] of length `2 * size`. All operations are O(1) and inline‑friendly.
  */
-class IntAsLongArray(private val data: IntArray) {
+class IntAsLongArray(val data: IntArray) {
 
     /** Creates a new array of the specified [size], filled with zeros. */
     constructor(size: Int) : this(IntArray(size * 2))

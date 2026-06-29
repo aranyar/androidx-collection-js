@@ -85,3 +85,23 @@ internal expect fun _scatterSetFind(
     hash: Int,
     hash2: Int,
 ): Int
+
+internal expect fun _scatterSetAdd(
+    metadataFlat: IntArray,
+    elements: Array<Any?>,
+    capacity: Int,
+    element: Any?,
+    hash: Int,
+    hash2: Int,
+    outCreated: IntArray,
+    outSizeDelta: IntArray,
+): Int
+
+internal expect fun _scatterSetRemove(
+    metadataFlat: IntArray,
+    elements: Array<Any?>,
+    capacity: Int,
+    element: Any?,
+    hash: Int,
+    hash2: Int,
+): Int

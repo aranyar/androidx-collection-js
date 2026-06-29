@@ -86,3 +86,25 @@ internal actual external fun _scatterSetFind(
     hash: Int,
     hash2: Int,
 ): Int
+
+@JsName("_scatterSetAdd")
+internal actual external fun _scatterSetAdd(
+    metadataFlat: IntArray,
+    elements: Array<Any?>,
+    capacity: Int,
+    element: Any?,
+    hash: Int,
+    hash2: Int,
+    outCreated: IntArray,
+    outSizeDelta: IntArray,
+): Int
+
+@JsName("_scatterSetRemove")
+internal actual external fun _scatterSetRemove(
+    metadataFlat: IntArray,
+    elements: Array<Any?>,
+    capacity: Int,
+    element: Any?,
+    hash: Int,
+    hash2: Int,
+): Int

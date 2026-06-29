@@ -31,6 +31,9 @@ import androidx.collection.internal.EMPTY_OBJECTS
 import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
 import androidx.collection.internal.throwNoSuchElementExceptionForInline
+import androidx.collection.internal._scatterSetFind
+import androidx.collection.internal._scatterSetAdd
+import androidx.collection.internal._scatterSetRemove
 import kotlin.contracts.contract
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmOverloads

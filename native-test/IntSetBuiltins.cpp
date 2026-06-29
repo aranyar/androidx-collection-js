@@ -112,12 +112,23 @@ static inline void write_meta_byte(int32_t* flat, int32_t offset, int32_t byte) 
 
 // Build a uint64 with byte 0..7 = flat[offset]..flat[offset+7] (wrapping mod capacity).
 // capacity must be a power of 2 (>= 8).
+// Note: flat is IntAsLongArray.data where each 64-bit slot occupies 2 consecutive ints.
+// For slot s: flat[2*s] = low 32 bits, flat[2*s+1] = high 32 bits.
 static inline uint64_t load_group(const int32_t* flat, int32_t offset, int32_t capacity) {
   uint64_t g = 0;
-  int32_t mask = capacity - 1;
   for (int i = 0; i < 8; i++) {
-    int32_t o = (offset + i) & mask;
-    g |= ((uint64_t)(uint8_t)read_meta_byte(flat, o)) << (i * 8);
+    int32_t slot = (offset + i) & (capacity - 1);  // slot index in [0, capacity)
+    int32_t dataIdx = slot * 2;  // index into flat for low 32 bits
+    uint64_t slotVal = (((uint64_t)(uint32_t)flat[dataIdx + 1]) << 32) | ((uint64_t)(uint32_t)flat[dataIdx] & 0xFFFFFFFFULL);
+    // Extract all 8 bytes from slotVal and place in g at byte positions i*8 to i*8+7
+    g |= (slotVal & 0xFFULL) << (i * 8);           // byte 0 of slot -> position i*8
+    g |= ((slotVal >> 8) & 0xFFULL) << (i * 8 + 1);  // byte 1 -> position i*8+1
+    g |= ((slotVal >> 16) & 0xFFULL) << (i * 8 + 2);
+    g |= ((slotVal >> 24) & 0xFFULL) << (i * 8 + 3);
+    g |= ((slotVal >> 32) & 0xFFULL) << (i * 8 + 4);
+    g |= ((slotVal >> 40) & 0xFFULL) << (i * 8 + 5);
+    g |= ((slotVal >> 48) & 0xFFULL) << (i * 8 + 6);
+    g |= ((slotVal >> 56) & 0xFFULL) << (i * 8 + 7);
   }
   return g;
 }
@@ -567,13 +578,13 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
   // get_int32_data on it — we just access argv[1] directly via JS_GetPropertyUint32.
   int32_t capacity = JS_VALUE_GET_INT(argv[2]);
   JSValueConst element = argv[3];
-  int32_t hash = JS_VALUE_GET_INT(argv[4]);
+  int32_t h1 = JS_VALUE_GET_INT(argv[4]);  // h1 is already the probe offset
   int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
 
-  DBG_LOGI("c_scatterset_find ENTER cap=%d hash=%d hash2=%d", capacity, hash, hash2);
+  DBG_LOGI("c_scatterset_find ENTER cap=%d h1=%d hash2=%d", capacity, h1, hash2);
 
   int32_t probeMask = capacity;
-  int32_t probeOffset = ((uint32_t)hash >> 7) & probeMask;
+  int32_t probeOffset = (uint32_t)h1 & probeMask;
   int32_t probeIndex = 0;
   int32_t iter = 0;
 
@@ -615,6 +626,112 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
   return JS_NewInt32(ctx, -1);
 }
 
+// JS signature: _scatterSetAdd(metadataFlat, elements, capacity, element, hash, hash2, outCreated, outSizeDelta)
+// Returns index (existing or new), outCreated[0] = 0|1, outSizeDelta[0] = 0|1
+static JSValue c_scatterset_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+  (void)this_val; (void)argc;
+  int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+  if (!meta) return JS_EXCEPTION;
+  int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+  JSValueConst element = argv[3];
+  int32_t hash = JS_VALUE_GET_INT(argv[4]);
+  int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+  int32_t* created = get_int32_data(ctx, argv[6], "created");
+  if (!created) return JS_EXCEPTION;
+  int32_t* sizeDelta = get_int32_data(ctx, argv[7], "sizeDelta");
+  if (!sizeDelta) return JS_EXCEPTION;
+
+  DBG_LOGI("c_scatterset_add ENTER cap=%d hash=%d hash2=%d", capacity, hash, hash2);
+
+  int32_t probeMask = capacity;
+  int32_t probeOffset = ((uint32_t)hash >> 7) & probeMask;
+  int32_t probeIndex = 0;
+  int32_t insertSlot = -1;
+
+  while (1) {
+    uint64_t g = load_group(meta, probeOffset, capacity);
+    uint64_t m = match_hash2(g, hash2);
+    while (m != 0) {
+      int32_t bitIdx = __builtin_ctzll(m);
+      int32_t byteInGroup = bitIdx >> 3;
+      int32_t index = (probeOffset + byteInGroup) & probeMask;
+      JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+      if (JS_IsException(slotVal)) {
+        DBG_LOGE("c_scatterset_add: JS_GetPropertyUint32(%d) failed", index);
+        return JS_EXCEPTION;
+      }
+      int eq = JS_StrictEq(ctx, slotVal, element);
+      JS_FreeValue(ctx, slotVal);
+      if (eq > 0) {
+        created[0] = 0;
+        sizeDelta[0] = 0;
+        DBG_LOGI("c_scatterset_add found existing at index=%d", index);
+        return JS_NewInt32(ctx, index);
+      }
+      m &= m - 1;
+    }
+    int32_t slot = first_empty_or_deleted(g, probeOffset, capacity);
+    if (slot >= 0) { insertSlot = slot; break; }
+    probeIndex += 8;
+    probeOffset = (probeOffset + probeIndex) & probeMask;
+  }
+
+  write_meta_byte(meta, insertSlot, hash2);
+  JSValue setVal = JS_DupValue(ctx, element);
+  JS_SetPropertyUint32(ctx, argv[1], (uint32_t)insertSlot, setVal);
+  created[0] = 1;
+  sizeDelta[0] = 1;
+  DBG_LOGI("c_scatterset_add inserted at index=%d", insertSlot);
+  return JS_NewInt32(ctx, insertSlot);
+}
+
+// JS signature: _scatterSetRemove(metadataFlat, elements, capacity, element, hash, hash2)
+// Returns removed index, or -1 if not present
+static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+  (void)this_val; (void)argc;
+  int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+  if (!meta) return JS_EXCEPTION;
+  int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+  JSValueConst element = argv[3];
+  int32_t hash = JS_VALUE_GET_INT(argv[4]);
+  int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+  DBG_LOGI("c_scatterset_remove ENTER cap=%d hash=%d hash2=%d", capacity, hash, hash2);
+
+  int32_t probeMask = capacity;
+  int32_t probeOffset = ((uint32_t)hash >> 7) & probeMask;
+  int32_t probeIndex = 0;
+
+  while (1) {
+    uint64_t g = load_group(meta, probeOffset, capacity);
+    uint64_t m = match_hash2(g, hash2);
+    while (m != 0) {
+      int32_t bitIdx = __builtin_ctzll(m);
+      int32_t byteInGroup = bitIdx >> 3;
+      int32_t index = (probeOffset + byteInGroup) & probeMask;
+      JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+      if (JS_IsException(slotVal)) {
+        DBG_LOGE("c_scatterset_remove: JS_GetPropertyUint32(%d) failed", index);
+        return JS_EXCEPTION;
+      }
+      int eq = JS_StrictEq(ctx, slotVal, element);
+      JS_FreeValue(ctx, slotVal);
+      if (eq > 0) {
+        write_meta_byte(meta, index, META_DELETED);
+        JSValue undefined = JS_UNDEFINED;
+        JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, undefined);
+        DBG_LOGI("c_scatterset_remove removed at index=%d", index);
+        return JS_NewInt32(ctx, index);
+      }
+      m &= m - 1;
+    }
+    if (any_empty(g)) break;
+    probeIndex += 8;
+    probeOffset = (probeOffset + probeIndex) & probeMask;
+  }
+  return JS_NewInt32(ctx, -1);
+}
+
 // Generic JS-callable log function. Allows Kotlin/JS code to send debug messages that
 // appear in Android logcat (and stderr on other platforms).
 static JSValue c_dbg_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -649,6 +766,10 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   JS_SetPropertyStr(ctx, globalThis, "_intObjectMapFindAvailableSlot", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_find,                    "_scatterSetFind",                  6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFind", fn);
+  fn = JS_NewCFunction(ctx, c_scatterset_add,                     "_scatterSetAdd",                   8);
+  JS_SetPropertyStr(ctx, globalThis, "_scatterSetAdd", fn);
+  fn = JS_NewCFunction(ctx, c_scatterset_remove,                 "_scatterSetRemove",                6);
+  JS_SetPropertyStr(ctx, globalThis, "_scatterSetRemove", fn);
   // Generic debug log helper for Kotlin/JS code to log to logcat.
   fn = JS_NewCFunction(ctx, c_dbg_log,                           "_dbg",                              1);
   JS_SetPropertyStr(ctx, globalThis, "_dbg", fn);
