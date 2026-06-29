@@ -1,314 +1,16 @@
-@file:Suppress("FunctionName", "unused")
-
 package androidx.collection.internal
 
-/**
- * JVM implementations of the JS-only intrinsics. These mirror the C functions in
- * IntSetBuiltins.cpp so that the existing test suite (which runs on JVM) can exercise
- * the full code paths that the JS hot paths use.
- *
- * NOTE: The commonMain code now uses pure-Kotlin algorithms (group()/match()/maskEmpty())
- * for findKeyIndex/findAbsoluteInsertIndex. The intrinsics here are NOT called from
- * commonMain on JVM. They exist as actual stubs but are dead code on JVM. The JS
- * implementation in zipline's C code is the live one.
- *
- * `probeMask` is `capacity` (not `capacity - 1`): we mask to capacity-1 internally, then
- * mask again at the end. (The original 1.5.0 source uses `& _capacity` so we follow that.)
- */
-private const val META_EMPTY: Int = 0x80
-private const val META_DELETED: Int = 0xFE
-private const val META_SENTINEL: Int = 0xFF
+import androidx.collection.h1
+import androidx.collection.h2
 
-private fun readMetaByte(flat: IntArray, offset: Int): Int = flat[offset] and 0xFF
+private const val GroupWidth = 8
+private const val Empty = 0x80L
+private const val Deleted = 0xFEL
 
-private fun writeMetaByte(flat: IntArray, offset: Int, byte: Int) {
-    flat[offset] = byte and 0xFF
-}
-
-// Build the 8-byte group as a Long. Byte 0 of the group = flat[offset], byte 1 = flat[offset+1], etc.
-// The 8 bytes are consecutive (may span a long boundary in the original LongArray layout).
-private fun loadGroup(flat: IntArray, offset: Int): Long {
-    var g: Long = 0L
-    for (i in 0 until 8) {
-        g = g or (readMetaByte(flat, offset + i).toLong() shl (i * 8))
-    }
-    return g
-}
-
-// Match the 8-byte group against hash2 (0..127). Each set bit 8k+7 indicates
-// that byte k matches hash2. Mirrors the C SIMD bit trick:
-//   m = (x - 0x01010101) & ~x & 0x80808080
-// where x = g XOR (hash2 * 0x01010101...)
-// Byte 7 is the sentinel and must never match any hash2, so we mask it out.
-private fun matchHash2(g: Long, hash2: Int): Long {
-    val xored = g xor (hash2.toLong() * 0x0101010101010101L)
-    return ((xored - 0x0101010101010101L) and (xored.inv()) and (0x7F7F7F7F7F7F7F7FL.inv())) and 0x00FFFFFFFFFFFFFFL
-}
-
-private fun anyEmptyOrDeleted(g: Long): Boolean {
-    val emptyMask = matchHash2(g, META_EMPTY)
-    val deletedMask = matchHash2(g, META_DELETED)
-    return (emptyMask or deletedMask) != 0L
-}
-
-private fun firstEmptyOrDeleted(g: Long, probeOffset: Int, capacity: Int): Int {
-    val emptyMask = matchHash2(g, META_EMPTY)
-    val deletedMask = matchHash2(g, META_DELETED)
-    val mask = emptyMask or deletedMask
-    if (mask == 0L) return -1
-    val bitIndex = java.lang.Long.numberOfTrailingZeros(mask)
-    val byteInGroup = bitIndex shr 3
-    val maskIdx = capacity - 1
-    return (probeOffset + byteInGroup) and maskIdx
-}
-
-// ============================================================================
-// IntObjectMap / IntObjectMapPut / etc.
-// ============================================================================
-
-internal actual fun _intObjectMapFind(
-    metadataFlat: IntArray,
-    keys: IntArray,
-    capacity: Int,
-    key: Int,
-    hash: Int,
-    hash2: Int,
-): Int {
-    if (metadataFlat.isEmpty()) return -1
-    val probeMask = capacity  // matches Kotlin source: `& _capacity`
-    var probeOffset = (hash ushr 7) and probeMask
-    var probeIndex = 0
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (keys[index] == key) return index
-            bitIdx = bitIdx and (bitIdx - 1L)
-        }
-        if (anyEmptyOrDeleted(g)) return -1
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-}
-
-internal actual fun _intObjectMapPut(
-    metadataFlat: IntArray,
-    keys: IntArray,
-    capacity: Int,
-    key: Int,
-    hash: Int,
-    hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-): Int {
-    if (metadataFlat.isEmpty()) {
-        outCreated[0] = 0
-        outSizeDelta[0] = 0
-        return -1
-    }
-    val probeMask = capacity
-    var probeOffset = (hash ushr 7) and probeMask
-    var probeIndex = 0
-    var insertSlot = -1
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (keys[index] == key) {
-                outCreated[0] = 0
-                outSizeDelta[0] = 0
-                return index
-            }
-            bitIdx = bitIdx and (bitIdx - 1L)
-        }
-        val slot = firstEmptyOrDeleted(g, probeOffset, capacity)
-        if (slot >= 0) { insertSlot = slot; break }
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    writeMetaByte(metadataFlat, insertSlot, hash2)
-    keys[insertSlot] = key
-    outCreated[0] = 1
-    outSizeDelta[0] = 1
-    return insertSlot
-}
-
-internal actual fun _intObjectMapRemove(
-    metadataFlat: IntArray,
-    keys: IntArray,
-    capacity: Int,
-    key: Int,
-    hash: Int,
-    hash2: Int,
-): Int {
-    if (metadataFlat.isEmpty()) return -1
-    val probeMask = capacity
-    var probeOffset = (hash ushr 7) and probeMask
-    var probeIndex = 0
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (keys[index] == key) {
-                writeMetaByte(metadataFlat, index, META_DELETED)
-                return index
-            }
-            bitIdx = bitIdx and (bitIdx - 1L)
-        }
-        // No match in this group. Check if any Empty (probe terminator).
-        val emptyMask = matchHash2(g, META_EMPTY)
-        if (emptyMask != 0L) return -1
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-}
-
-internal actual fun _intObjectMapFindAvailableSlot(
-    metadataFlat: IntArray,
-    capacity: Int,
-    hash1: Int,
-): Int {
-    if (metadataFlat.isEmpty()) return -1
-    val probeMask = capacity
-    var probeOffset = hash1 and probeMask
-    var probeIndex = 0
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val slot = firstEmptyOrDeleted(g, probeOffset, capacity)
-        if (slot >= 0) return slot
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-}
-
-// ============================================================================
-// IntSet (uses IntArray for elements)
-// ============================================================================
-
-internal actual fun _intsetFind(
-    metadataFlat: IntArray,
-    elements: IntArray,
-    capacity: Int,
-    element: Int,
-    hash: Int,
-    hash2: Int,
-): Int {
-    if (metadataFlat.isEmpty()) return -1
-    val probeMask = capacity
-    var probeOffset = (hash ushr 7) and probeMask
-    var probeIndex = 0
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (elements[index] == element) return index
-            bitIdx = bitIdx and (bitIdx - 1L)
-        }
-        if (anyEmptyOrDeleted(g)) return -1
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-}
-
-internal actual fun _intsetAdd(
-    metadataFlat: IntArray,
-    elements: IntArray,
-    capacity: Int,
-    element: Int,
-    hash: Int,
-    hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-): Int {
-    if (metadataFlat.isEmpty()) {
-        outCreated[0] = 0
-        outSizeDelta[0] = 0
-        return -1
-    }
-    val probeMask = capacity
-    var probeOffset = (hash ushr 7) and probeMask
-    var probeIndex = 0
-    var insertSlot = -1
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (elements[index] == element) {
-                outCreated[0] = 0
-                outSizeDelta[0] = 0
-                return index
-            }
-            bitIdx = bitIdx and (bitIdx - 1L)
-        }
-        val slot = firstEmptyOrDeleted(g, probeOffset, capacity)
-        if (slot >= 0) { insertSlot = slot; break }
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    writeMetaByte(metadataFlat, insertSlot, hash2)
-    elements[insertSlot] = element
-    outCreated[0] = 1
-    outSizeDelta[0] = 1
-    return insertSlot
-}
-
-internal actual fun _intsetRemove(
-    metadataFlat: IntArray,
-    elements: IntArray,
-    capacity: Int,
-    element: Int,
-    hash: Int,
-    hash2: Int,
-): Int {
-    if (metadataFlat.isEmpty()) return -1
-    val probeMask = capacity
-    var probeOffset = (hash ushr 7) and probeMask
-    var probeIndex = 0
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (elements[index] == element) {
-                writeMetaByte(metadataFlat, index, META_DELETED)
-                return index
-            }
-            bitIdx = bitIdx and (bitIdx - 1L)
-        }
-        val emptyMask = matchHash2(g, META_EMPTY)
-        if (emptyMask != 0L) return -1
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-}
-
-// ============================================================================
-// ScatterSet: elements is Array<Any?>, compare with === (JS strict equality).
-// JVM uses Object identity, which matches === for non-overloaded Any? references.
-// ============================================================================
+private val EMPTY_BYTE_MASK = 0x8080808080808080UL.toLong()
+private val DELETED_BYTE_MASK = 0xFEFEFEFEFEFEFEFEUL.toLong()
+private val HIGH_BIT_MASK = 0x8080808080808080UL.toLong()
+private val REPEATED_ONE = 0x0101010101010101L
 
 internal actual fun _scatterSetFind(
     metadataFlat: IntArray,
@@ -316,25 +18,168 @@ internal actual fun _scatterSetFind(
     capacity: Int,
     element: Any?,
     hash: Int,
-    hash2: Int,
+    hash2: Int
 ): Int {
-    if (metadataFlat.isEmpty()) return -1
-    val probeMask = capacity
-    var probeOffset = (hash ushr 7) and probeMask
+    val mask = capacity - 1
+    var probeOffset = h1(hash) and mask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        val m = matchHash2(g, hash2)
-        var bitIdx = m
-        while (bitIdx != 0L) {
-            val lowBit = java.lang.Long.numberOfTrailingZeros(bitIdx)
-            val byteInGroup = lowBit shr 3
-            val index = (probeOffset + byteInGroup) and (capacity - 1)
-            if (elements[index] === element) return index
-            bitIdx = bitIdx and (bitIdx - 1L)
+        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        var m = match(g, hash2)
+        while (m != 0L) {
+            val byteInGroup = m.countTrailingZeroBits() shr 3
+            val index = (probeOffset + byteInGroup) and mask
+            if (elements[index] == element) {
+                return index
+            }
+            m = m and (m - 1)
         }
-        if (anyEmptyOrDeleted(g)) return -1
-        probeIndex += 8
-        probeOffset = (probeOffset + probeIndex) and probeMask
+        if (hasEmpty(g)) break
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and mask
     }
+    return -1
+}
+
+internal actual fun _scatterSetAdd(
+    metadata: IntArray,
+    elements: Array<Any?>,
+    capacity: Int,
+    element: Any?,
+    hash: Int,
+    hash2: Int,
+    outCreated: IntArray,
+    outSizeDelta: IntArray,
+    outWasEmpty: IntArray
+): Int {
+    val mask = capacity - 1
+    var probeOffset = h1(hash) and mask
+    var probeIndex = 0
+    var insertSlot = -1
+
+    while (true) {
+        val g = loadGroup(metadata, probeOffset, capacity)
+        var m = match(g, hash2)
+        while (m != 0L) {
+            val byteInGroup = m.countTrailingZeroBits() shr 3
+            val index = (probeOffset + byteInGroup) and mask
+            if (elements[index] == element) {
+                outCreated[0] = 0
+                outSizeDelta[0] = 0
+                outWasEmpty[0] = 0
+                return index
+            }
+            m = m and (m - 1)
+        }
+        val slot = firstEmptyOrDeleted(g, probeOffset, capacity)
+        if (slot >= 0) {
+            insertSlot = slot
+            break
+        }
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and mask
+    }
+
+    val oldByte = readByte(metadata, insertSlot)
+    val isEmpty = oldByte == Empty
+
+    writeByte(metadata, insertSlot, hash2.toLong())
+    elements[insertSlot] = element
+
+    outCreated[0] = 1
+    outSizeDelta[0] = 1
+    outWasEmpty[0] = if (isEmpty) 1 else 0
+    return insertSlot
+}
+
+internal actual fun _scatterSetRemove(
+    metadataFlat: IntArray,
+    elements: Array<Any?>,
+    capacity: Int,
+    element: Any?,
+    hash: Int,
+    hash2: Int
+): Int {
+    val mask = capacity - 1
+    var probeOffset = h1(hash) and mask
+    var probeIndex = 0
+
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        var m = match(g, hash2)
+        while (m != 0L) {
+            val byteInGroup = m.countTrailingZeroBits() shr 3
+            val index = (probeOffset + byteInGroup) and mask
+            if (elements[index] == element) {
+                writeByte(metadataFlat, index, Deleted)
+                elements[index] = null
+                return index
+            }
+            m = m and (m - 1)
+        }
+        if (hasEmpty(g)) break
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and mask
+    }
+    return -1
+}
+
+private fun loadGroup(metadata: IntArray, offset: Int, capacity: Int): Long {
+    var g = 0L
+    val mask = capacity - 1
+    for (i in 0 until 8) {
+        val slot = (offset + i) and mask
+        val byte = readByte(metadata, slot)
+        g = g or (byte shl (i * 8))
+    }
+    return g
+}
+
+private fun match(g: Long, hash2: Int): Long {
+    val x = g xor (hash2.toLong() * REPEATED_ONE)
+    return (x - REPEATED_ONE) and x.inv() and HIGH_BIT_MASK
+}
+
+private fun hasEmpty(g: Long): Boolean = maskEmpty(g) != 0L
+
+private fun firstEmptyOrDeleted(g: Long, probeOffset: Int, capacity: Int): Int {
+    val mask = maskEmpty(g) or maskDeleted(g)
+    if (mask == 0L) return -1
+    val bitIndex = mask.countTrailingZeroBits()
+    val byteInGroup = bitIndex shr 3
+    return (probeOffset + byteInGroup) and (capacity - 1)
+}
+
+private fun maskEmpty(g: Long): Long {
+    val x = g xor EMPTY_BYTE_MASK
+    return (x - REPEATED_ONE) and x.inv() and HIGH_BIT_MASK
+}
+
+private fun maskDeleted(g: Long): Long {
+    val x = g xor DELETED_BYTE_MASK
+    return (x - REPEATED_ONE) and x.inv() and HIGH_BIT_MASK
+}
+
+private fun readByte(metadata: IntArray, slot: Int): Long {
+    val longIdx = slot * 2
+    val low = metadata[longIdx].toLong() and 0xFFFFFFFFL
+    val high = metadata[longIdx + 1].toLong() and 0xFFFFFFFFL
+    val combined = (high shl 32) or low
+    val byteShift = (slot and 0x7) shl 3
+    return (combined ushr byteShift) and 0xFFL
+}
+
+private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
+    val longIdx = slot * 2
+    val byteShift = (slot and 0x7) shl 3
+    val byteMask = 0xFFL shl byteShift
+
+    val low = metadata[longIdx].toLong() and 0xFFFFFFFFL
+    val high = (metadata[longIdx + 1].toLong() and 0xFFFFFFFFL) shl 32
+    var combined = (high shl 32) or low
+
+    combined = (combined and byteMask.inv()) or ((value and 0xFFL) shl byteShift)
+
+    metadata[longIdx] = (combined and 0xFFFFFFFFL).toInt()
+    metadata[longIdx + 1] = ((combined shr 32) and 0xFFFFFFFFL).toInt()
 }

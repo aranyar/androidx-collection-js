@@ -8,69 +8,6 @@ package androidx.collection.internal
  * will fail at runtime (the hot paths in IntObjectMap/IntSet should not be hit there
  * because those classes are mostly used from JS live UI).
  */
-internal expect fun _intObjectMapFind(
-    metadataFlat: IntArray,
-    keys: IntArray,
-    capacity: Int,
-    key: Int,
-    hash: Int,
-    hash2: Int,
-): Int
-
-internal expect fun _intObjectMapPut(
-    metadataFlat: IntArray,
-    keys: IntArray,
-    capacity: Int,
-    key: Int,
-    hash: Int,
-    hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-): Int
-
-internal expect fun _intObjectMapRemove(
-    metadataFlat: IntArray,
-    keys: IntArray,
-    capacity: Int,
-    key: Int,
-    hash: Int,
-    hash2: Int,
-): Int
-
-internal expect fun _intObjectMapFindAvailableSlot(
-    metadataFlat: IntArray,
-    capacity: Int,
-    hash1: Int,
-): Int
-
-internal expect fun _intsetFind(
-    metadataFlat: IntArray,
-    elements: IntArray,
-    capacity: Int,
-    element: Int,
-    hash: Int,
-    hash2: Int,
-): Int
-
-internal expect fun _intsetAdd(
-    metadataFlat: IntArray,
-    elements: IntArray,
-    capacity: Int,
-    element: Int,
-    hash: Int,
-    hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-): Int
-
-internal expect fun _intsetRemove(
-    metadataFlat: IntArray,
-    elements: IntArray,
-    capacity: Int,
-    element: Int,
-    hash: Int,
-    hash2: Int,
-): Int
 
 /**
  * ScatterSet probe loop intrinsic. Same metadata layout as IntSet but the elements
@@ -87,7 +24,7 @@ internal expect fun _scatterSetFind(
 ): Int
 
 internal expect fun _scatterSetAdd(
-    metadataFlat: IntArray,
+    metadata: IntArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -95,6 +32,7 @@ internal expect fun _scatterSetAdd(
     hash2: Int,
     outCreated: IntArray,
     outSizeDelta: IntArray,
+    outWasEmpty: IntArray
 ): Int
 
 internal expect fun _scatterSetRemove(

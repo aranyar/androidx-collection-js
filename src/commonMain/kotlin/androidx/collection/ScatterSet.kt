@@ -393,30 +393,14 @@ public sealed class ScatterSet<E> {
     internal inline fun findElementIndex(element: E): Int {
         val hash = hash(element)
         val hash2 = h2(hash)
-
-        val probeMask = _capacity
-        var probeOffset = h1(hash) and probeMask
-        var probeIndex = 0
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (elements[index] == element) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
-        }
-
-        return -1
+        return _scatterSetFind(
+            metadata.data,
+            elements,
+            _capacity,
+            element,
+            hash,
+            hash2
+        )
     }
 
     /**
