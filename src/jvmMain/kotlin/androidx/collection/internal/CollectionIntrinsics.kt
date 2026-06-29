@@ -7,9 +7,10 @@ package androidx.collection.internal
  * IntSetBuiltins.cpp so that the existing test suite (which runs on JVM) can exercise
  * the full code paths that the JS hot paths use.
  *
- * The data layout is identical to the C side: `metadataFlat` is a parallel Int32Array
- * whose low 8 bits per element hold the metadata byte for that slot
- * (0x80 = Empty, 0xFE = Deleted, 0xFF = Sentinel, 0x00..0x7F = hash2 of the element at that slot).
+ * NOTE: The commonMain code now uses pure-Kotlin algorithms (group()/match()/maskEmpty())
+ * for findKeyIndex/findAbsoluteInsertIndex. The intrinsics here are NOT called from
+ * commonMain on JVM. They exist as actual stubs but are dead code on JVM. The JS
+ * implementation in zipline's C code is the live one.
  *
  * `probeMask` is `capacity` (not `capacity - 1`): we mask to capacity-1 internally, then
  * mask again at the end. (The original 1.5.0 source uses `& _capacity` so we follow that.)
@@ -25,13 +26,11 @@ private fun writeMetaByte(flat: IntArray, offset: Int, byte: Int) {
 }
 
 // Build the 8-byte group as a Long. Byte 0 of the group = flat[offset], byte 1 = flat[offset+1], etc.
-// capacity must be a power of 2 (>= 8).
-private fun loadGroup(flat: IntArray, offset: Int, capacity: Int): Long {
-    val mask = capacity - 1
+// The 8 bytes are consecutive (may span a long boundary in the original LongArray layout).
+private fun loadGroup(flat: IntArray, offset: Int): Long {
     var g: Long = 0L
     for (i in 0 until 8) {
-        val o = (offset + i) and mask
-        g = g or (readMetaByte(flat, o).toLong() shl (i * 8))
+        g = g or (readMetaByte(flat, offset + i).toLong() shl (i * 8))
     }
     return g
 }
@@ -40,9 +39,10 @@ private fun loadGroup(flat: IntArray, offset: Int, capacity: Int): Long {
 // that byte k matches hash2. Mirrors the C SIMD bit trick:
 //   m = (x - 0x01010101) & ~x & 0x80808080
 // where x = g XOR (hash2 * 0x01010101...)
+// Byte 7 is the sentinel and must never match any hash2, so we mask it out.
 private fun matchHash2(g: Long, hash2: Int): Long {
     val xored = g xor (hash2.toLong() * 0x0101010101010101L)
-    return (xored - 0x0101010101010101L) and (xored.inv()) and -0x7f7f7f7f7f7f7f80L
+    return ((xored - 0x0101010101010101L) and (xored.inv()) and (0x7F7F7F7F7F7F7F7FL.inv())) and 0x00FFFFFFFFFFFFFFL
 }
 
 private fun anyEmptyOrDeleted(g: Long): Boolean {
@@ -79,7 +79,7 @@ internal actual fun _intObjectMapFind(
     var probeOffset = (hash ushr 7) and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {
@@ -115,7 +115,7 @@ internal actual fun _intObjectMapPut(
     var probeIndex = 0
     var insertSlot = -1
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {
@@ -154,7 +154,7 @@ internal actual fun _intObjectMapRemove(
     var probeOffset = (hash ushr 7) and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {
@@ -185,7 +185,7 @@ internal actual fun _intObjectMapFindAvailableSlot(
     var probeOffset = hash1 and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val slot = firstEmptyOrDeleted(g, probeOffset, capacity)
         if (slot >= 0) return slot
         probeIndex += 8
@@ -210,7 +210,7 @@ internal actual fun _intsetFind(
     var probeOffset = (hash ushr 7) and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {
@@ -246,7 +246,7 @@ internal actual fun _intsetAdd(
     var probeIndex = 0
     var insertSlot = -1
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {
@@ -285,7 +285,7 @@ internal actual fun _intsetRemove(
     var probeOffset = (hash ushr 7) and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {
@@ -323,7 +323,7 @@ internal actual fun _scatterSetFind(
     var probeOffset = (hash ushr 7) and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset, capacity)
+        val g = loadGroup(metadataFlat, probeOffset)
         val m = matchHash2(g, hash2)
         var bitIdx = m
         while (bitIdx != 0L) {

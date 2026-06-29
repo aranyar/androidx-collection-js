@@ -580,10 +580,28 @@ public sealed class IntObjectMap<V> {
      * -1 if the key is not present.
      */
     internal inline fun findKeyIndex(key: Int): Int {
-        // Call C intrinsic for the probe loop. The C side reads from `metadataFlat`
-        // (parallel Int32Array, low 8 bits per slot) and `keys` (IntArray).
         val hash = hash(key)
-        return _intObjectMapFind(metadataFlat, keys, _capacity, key, hash, h2(hash))
+        val hash1 = h1(hash)
+        val hash2 = h2(hash)
+
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+
+        while (true) {
+            val g = group(metadata, probeOffset)
+            var m = g.match(hash2)
+            while (m.hasNext()) {
+                val index = (probeOffset + m.get()) and probeMask
+                if (keys[index] == key) {
+                    return index
+                }
+                m = m.next()
+            }
+            if (g.maskEmpty() != 0L) return -1
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
     }
 }
 
@@ -805,7 +823,6 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
         var probeOffset = hash1 and probeMask
         var probeIndex = 0
 
-        // 1. Try to find an existing key
         while (true) {
             val g = group(metadata, probeOffset)
             var m = g.match(hash2)
@@ -816,41 +833,25 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
                 }
                 m = m.next()
             }
-            if (g.maskEmpty() != 0L) break
+
+            if (g.maskEmpty() != 0L) {
+                break
+            }
+
             probeIndex += GroupWidth
             probeOffset = (probeOffset + probeIndex) and probeMask
         }
 
-        // 2. Find an available slot (Empty or Deleted)
-        var index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
-
-        // 3. If none found, the table is completely full – resize immediately
-        if (index < 0) {
-            resizeStorage(nextCapacity(_capacity))
-            // After resize, retry; there must be an available slot
-            index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
-            // If still -1 (shouldn't happen), force one more resize as a safety net
-            if (index < 0) {
-                resizeStorage(nextCapacity(_capacity))
-                index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
-            }
-        }
-
-        // 4. If growthLimit is exhausted and the slot is not Deleted, we must adjust
+        var index = findFirstAvailableSlot(hash1)
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
-            // Re-find the slot after adjustment (could be the same index if it became empty)
-            index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
-            // Safety net again
-            if (index < 0) {
-                resizeStorage(nextCapacity(_capacity))
-                index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
-            }
+            index = findFirstAvailableSlot(hash1)
         }
 
         _size += 1
         growthLimit -= if (isEmpty(metadata, index)) 1 else 0
         writeMetadata(metadata, metadataFlat, _capacity, index, hash2.toLong())
+
         return index
     }
 
@@ -859,8 +860,19 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
      * resizing the internal storage.
      */
     private fun findFirstAvailableSlot(hash1: Int): Int {
-        // C intrinsic walks the metadata groups until it finds an Empty or Deleted byte.
-        return _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+
+        while (true) {
+            val g = group(metadata, probeOffset)
+            val m = g.maskEmptyOrDeleted()
+            if (m != 0L) {
+                return (probeOffset + m.lowestBitSet()) and probeMask
+            }
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
     }
 
     /**

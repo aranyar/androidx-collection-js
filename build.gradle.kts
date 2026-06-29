@@ -17,6 +17,7 @@ kotlin {
     jvm()
     js {
         browser()
+        nodejs()
         binaries.executable()
     }
     iosArm64()

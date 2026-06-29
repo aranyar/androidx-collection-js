@@ -393,13 +393,28 @@ public sealed class ScatterSet<E> {
      * if the element is not present.
      */
     internal inline fun findElementIndex(element: E): Int {
-        // Call C intrinsic for the probe loop. The C side reads from `metadataFlat`
-        // (parallel Int32Array, low 8 bits per slot) and `elements` (Kotlin's Any? array —
-        // passed through as Object[] which is a TypedArray of sorts... but for element comparison
-        // we just need pointer-equality in C since the JS bundle uses === semantics).
         val hash = hash(element)
-        // hash2 is hash & 127, hash1 is (hash >>> 7) & (capacity - 1)
-        return _scatterSetFind(metadataFlat, elements, _capacity, element as Any?, hash, h2(hash))
+        val hash1 = h1(hash)
+        val hash2 = h2(hash)
+
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+
+        while (true) {
+            val g = group(metadata, probeOffset)
+            var m = g.match(hash2)
+            while (m.hasNext()) {
+                val index = (probeOffset + m.get()) and probeMask
+                if (elements[index] == element) {
+                    return index
+                }
+                m = m.next()
+            }
+            if (g.maskEmpty() != 0L) return -1
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
     }
 
     /**
@@ -938,11 +953,11 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
             probeOffset = (probeOffset + probeIndex) and probeMask
         }
 
-        // No existing element. Find first available slot (Empty or Deleted) using C intrinsic.
-        var index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
+        // No existing element. Find first available slot (Empty or Deleted).
+        var index = findFirstAvailableSlot(hash1)
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
-            index = _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
+            index = findFirstAvailableSlot(hash1)
         }
 
         _size += 1
@@ -957,8 +972,19 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      * resizing the internal storage.
      */
     private fun findFirstAvailableSlot(hash1: Int): Int {
-        // C intrinsic walks the metadata groups until it finds an Empty or Deleted byte.
-        return _intObjectMapFindAvailableSlot(metadataFlat, _capacity, hash1)
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+
+        while (true) {
+            val g = group(metadata, probeOffset)
+            val m = g.maskEmptyOrDeleted()
+            if (m != 0L) {
+                return (probeOffset + m.lowestBitSet()) and probeMask
+            }
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
     }
 
     /**
