@@ -29,15 +29,14 @@ tasks.register<Exec>("jsQjsTest") {
 
     val project = project
     val mainDir = file("${project.layout.buildDirectory.get().asFile.path}/compileSync/js/main/developmentExecutable")
-    val webpackConfig = file("native-test/webpack-test.config.js")
     val bundleOutputDir = file("${mainDir.path}/dist")
     val qjsBinary = file("${quickjsSourceDir}/qjs")
 
     workingDir = mainDir
     commandLine("sh", "-c", """
-        cp '${webpackConfig.path}' webpack.config.js
+        cp ${file("native-test/webpack-test.config.js").absolutePath} ${mainDir.absolutePath}/webpack.config.js
         mkdir -p dist
-        node ${project.layout.buildDirectory.get().asFile.path}/js/node_modules/webpack/bin/webpack.js --config webpack.config.js
+        node ${file("node_modules/webpack/bin/webpack.js").absolutePath} --config webpack.config.js
         ${qjsBinary.absolutePath} ${bundleOutputDir.absolutePath}/collection-bundle.js
     """)
 }
@@ -98,12 +97,12 @@ kotlin {
 
         commonTest.dependencies {
             implementation(kotlin("test"))
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
 
         jvmTest.dependencies {
             implementation(kotlin("test"))
             implementation("com.google.truth:truth:1.4.4")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
 
         jvmMain.dependencies {
