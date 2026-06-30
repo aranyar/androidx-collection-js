@@ -325,7 +325,7 @@ static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int ar
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
 
-    int32_t mask = capacity;                       // FIX: use capacity
+    int32_t mask = capacity;
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
 
@@ -343,8 +343,9 @@ static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int ar
             int eq = kotlin_equals(ctx, slotVal, element);
             JS_FreeValue(ctx, slotVal);
             if (eq) {
+                // Mark as Deleted and clear the element to null (not undefined)
                 write_meta_byte(meta, index, META_DELETED);
-                JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_UNDEFINED);
+                JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NULL);
                 return JS_NewInt32(ctx, index);
             }
             m &= m - 1;
@@ -355,7 +356,6 @@ static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int ar
     }
     return JS_NewInt32(ctx, -1);
 }
-
 // Generic JS-callable log function. Allows Kotlin/JS code to send debug messages that
 // appear in Android logcat (and stderr on other platforms).
 static JSValue c_dbg_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {

@@ -158,25 +158,18 @@ private fun maskDeleted(g: Long): Long {
 }
 
 private fun readByte(metadata: IntArray, slot: Int): Long {
-    val longIdx = slot * 2
-    val low = metadata[longIdx].toLong() and 0xFFFFFFFFL
-    val high = metadata[longIdx + 1].toLong() and 0xFFFFFFFFL
-    val combined = (high shl 32) or low
-    val byteShift = (slot and 0x7) shl 3
-    return (combined ushr byteShift) and 0xFFL
+    val intIdx = slot shr 2
+    val byteShift = (slot and 0x3) shl 3
+    return ((metadata[intIdx] ushr byteShift) and 0xFF).toLong()
 }
 
 private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
-    val longIdx = slot * 2
-    val byteShift = (slot and 0x7) shl 3
-    val byteMask = 0xFFL shl byteShift
+    val intIdx = slot shr 2
+    val byteShift = (slot and 0x3) shl 3
+    val byteMask = 0xFF shl byteShift
 
-    val low = metadata[longIdx].toLong() and 0xFFFFFFFFL
-    val high = (metadata[longIdx + 1].toLong() and 0xFFFFFFFFL) shl 32
-    var combined = (high shl 32) or low
+    val old = metadata[intIdx]
+    val new = (old and byteMask.inv()) or ((value.toInt() and 0xFF) shl byteShift)
 
-    combined = (combined and byteMask.inv()) or ((value and 0xFFL) shl byteShift)
-
-    metadata[longIdx] = (combined and 0xFFFFFFFFL).toInt()
-    metadata[longIdx + 1] = ((combined shr 32) and 0xFFFFFFFFL).toInt()
+    metadata[intIdx] = new
 }
