@@ -1,0 +1,1030 @@
+/*
+ * Copyright 2023 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+@file:Suppress(
+    "RedundantVisibilityModifier",
+    "KotlinRedundantDiagnosticSuppress",
+    "KotlinConstantConditions",
+    "PropertyName",
+    "ConstPropertyName",
+    "PrivatePropertyName",
+    "NOTHING_TO_INLINE"
+)
+@file:OptIn(ExperimentalContracts::class)
+
+package androidx.collection
+
+import androidx.annotation.IntRange
+import androidx.collection.internal.IntAsLongArray
+import androidx.collection.internal.requirePrecondition
+import androidx.collection.internal.throwNoSuchElementExceptionForInline
+import androidx.collection.internal._intObjectMapFind
+import androidx.collection.internal._intObjectMapPut
+import androidx.collection.internal._intObjectMapRemove
+import androidx.collection.internal._intObjectMapFindAvailableSlot
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
+import kotlin.jvm.JvmField
+import kotlin.jvm.JvmOverloads
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// DO NOT MAKE CHANGES to the kotlin source file.
+//
+// This file was generated from a template in the template directory.
+// Make a change to the original template and run the generateCollections.sh script
+// to ensure the change is available on all versions of the map.
+// -=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+// Default empty map to avoid allocations
+private val EmptyIntObjectMap = MutableIntObjectMap<Any?>(0)
+
+internal val EmptyAnyArray = arrayOfNulls<Any?>(0)
+
+/**
+ * Returns an empty, read-only [IntObjectMap].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun <V> emptyIntObjectMap(): IntObjectMap<V> = EmptyIntObjectMap as IntObjectMap<V>
+
+/**
+ * Returns an empty, read-only [IntObjectMap].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun <V> intObjectMapOf(): IntObjectMap<V> = EmptyIntObjectMap as IntObjectMap<V>
+
+/**
+ * Returns a new read-only [IntObjectMap] with only one entry: [key] to [value].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun <V> intObjectMapOf(key: Int, value: V): IntObjectMap<V> =
+    mutableIntObjectMapOf(key to value)
+
+/**
+ * Returns a new read-only [IntObjectMap] with two entries: [key1] to [value1] and
+ * [key2] to [value2].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun <V> intObjectMapOf(key1: Int, value1: V, key2: Int, value2: V): IntObjectMap<V> =
+    mutableIntObjectMapOf(key1 to value1, key2 to value2)
+
+/**
+ * Returns a new read-only [IntObjectMap] with three entries: [key1] to [value1],
+ * [key2] to [value2], and [key3] to [value3].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun <V> intObjectMapOf(
+    key1: Int, value1: V,
+    key2: Int, value2: V,
+    key3: Int, value3: V
+): IntObjectMap<V> = mutableIntObjectMapOf(key1 to value1, key2 to value2, key3 to value3)
+
+/**
+ * Returns a new read-only [IntObjectMap] with the specified contents.
+ */
+@Suppress("UNCHECKED_CAST")
+public fun <V> intObjectMapOf(vararg pairs: Pair<Int, V>): IntObjectMap<V> =
+    MutableIntObjectMap<V>(pairs.size).apply { for ((k, v) in pairs) put(k, v) }
+
+/**
+ * Returns a new [MutableIntObjectMap].
+ */
+public fun <V> mutableIntObjectMapOf(): MutableIntObjectMap<V> = MutableIntObjectMap()
+
+/**
+ * Returns a new [MutableIntObjectMap] with only one entry: [key] to [value].
+ */
+public fun <V> mutableIntObjectMapOf(key: Int, value: V): MutableIntObjectMap<V> =
+    MutableIntObjectMap<V>(1).apply { put(key, value) }
+
+/**
+ * Returns a new [MutableIntObjectMap] with two entries: [key1] to [value1] and
+ * [key2] to [value2].
+ */
+public fun <V> mutableIntObjectMapOf(key1: Int, value1: V, key2: Int, value2: V): MutableIntObjectMap<V> =
+    MutableIntObjectMap<V>(2).apply { put(key1, value1); put(key2, value2) }
+
+/**
+ * Returns a new [MutableIntObjectMap] with three entries: [key1] to [value1],
+ * [key2] to [value2], and [key3] to [value3].
+ */
+public fun <V> mutableIntObjectMapOf(
+    key1: Int, value1: V,
+    key2: Int, value2: V,
+    key3: Int, value3: V
+): MutableIntObjectMap<V> =
+    MutableIntObjectMap<V>(3).apply { put(key1, value1); put(key2, value2); put(key3, value3) }
+
+/**
+ * Returns a new [MutableIntObjectMap] with the specified contents.
+ */
+public fun <V> mutableIntObjectMapOf(vararg pairs: Pair<Int, V>): MutableIntObjectMap<V> =
+    MutableIntObjectMap<V>(pairs.size).apply { for ((k, v) in pairs) put(k, v) }
+
+/**
+ * [IntObjectMap] is a container with a [Map]-like interface based on a flat hash table
+ * implementation. The underlying implementation is designed to avoid all allocations on insertion,
+ * removal, retrieval, and iteration. Allocations may still happen on insertion when the underlying
+ * storage needs to grow to accommodate newly added elements to the set.
+ *
+ * This implementation makes no guarantee as to the order of the keys and values stored, nor does it
+ * make guarantees that the order remains constant over time.
+ *
+ * Though [IntObjectMap] offers a read-only interface, it is always backed by a [MutableIntObjectMap].
+ * Read operations alone are thread-safe. However, any mutations done through the backing
+ * [MutableIntObjectMap] while reading on another thread are not safe and the developer must protect
+ * the map from such changes during read operations.
+ *
+ * **Note**: when a [Map] is absolutely necessary, you can use the method [asMap] to create a thin
+ * wrapper around a [IntObjectMap]. Please refer to [asMap] for more details and caveats.
+ *
+ * @see [MutableIntObjectMap]
+ */
+public sealed class IntObjectMap<out V> {
+    @PublishedApi @JvmField internal var metadata: IntAsLongArray = EmptyGroupInt
+
+    @PublishedApi @JvmField internal var keys: IntArray = EmptyIntArray
+
+    @PublishedApi @JvmField internal var values: Array<Any?> = EmptyAnyArray
+
+    @JvmField internal var _capacity: Int = 0
+
+    @get:IntRange(from = 0)
+    public val capacity: Int
+        get() = _capacity
+
+    @JvmField internal var _size: Int = 0
+
+    @get:IntRange(from = 0)
+    public val size: Int
+        get() = _size
+
+    public fun any(): Boolean = _size != 0
+
+    public fun none(): Boolean = _size == 0
+
+    public fun isEmpty(): Boolean = _size == 0
+
+    public fun isNotEmpty(): Boolean = _size != 0
+
+    /**
+     * Returns the value corresponding to the given [key], or `null` if no such key exists.
+     */
+    public operator fun get(key: Int): V? {
+        val index = findIndex(key)
+        return if (index >= 0) {
+            @Suppress("UNCHECKED_CAST")
+            values[index] as V
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Returns the value corresponding to the given [key], or [default] if no such key exists.
+     */
+    public inline fun getOrDefault(key: Int, default: V): V {
+        val index = findIndex(key)
+        return if (index >= 0) {
+            @Suppress("UNCHECKED_CAST")
+            values[index] as V
+        } else {
+            default
+        }
+    }
+
+    /**
+     * Returns the value corresponding to the given [key], or [default] if no such key exists.
+     */
+    public inline fun getOrElse(key: Int, default: () -> V): V {
+        val index = findIndex(key)
+        return if (index >= 0) {
+            @Suppress("UNCHECKED_CAST")
+            values[index] as V
+        } else {
+            default()
+        }
+    }
+
+    /**
+     * Returns the value corresponding to the given [key], or puts [default] if no such key exists.
+     */
+    public inline fun getOrPut(key: Int, default: () -> V): V {
+        val index = findIndex(key)
+        if (index >= 0) {
+            @Suppress("UNCHECKED_CAST")
+            return values[index] as V
+        }
+        val value = default()
+        put(key, value)
+        return value
+    }
+
+    public fun containsKey(key: Int): Boolean = findIndex(key) >= 0
+
+    public inline fun any(predicate: (key: Int, value: V) -> Boolean): Boolean {
+        contract { callsInPlace(predicate) }
+        forEach { key, value -> if (predicate(key, value)) return true }
+        return false
+    }
+
+    public inline fun all(predicate: (key: Int, value: V) -> Boolean): Boolean {
+        contract { callsInPlace(predicate) }
+        forEach { key, value -> if (!predicate(key, value)) return false }
+        return true
+    }
+
+    public inline fun none(predicate: (key: Int, value: V) -> Boolean): Boolean {
+        contract { callsInPlace(predicate) }
+        forEach { key, value -> if (predicate(key, value)) return false }
+        return true
+    }
+
+    public fun hashCode(key: Int, value: V?): Int {
+        var result = key.hashCode()
+        result = 31 * result + (value?.hashCode() ?: 0)
+        return result
+    }
+
+    public override fun hashCode(): Int {
+        var result = _capacity
+        result = 31 * result + _size
+        forEach { key, value ->
+            result += hashCode(key, value)
+        }
+        return result
+    }
+
+    public override fun equals(other: Any?): Boolean {
+        if (other === this) {
+            return true
+        }
+        if (other !is IntObjectMap<*>) {
+            return false
+        }
+        if (size != other.size) {
+            return false
+        }
+        forEach { key, value ->
+            if (value != other[key]) {
+                return false
+            }
+        }
+        return true
+    }
+
+    public override fun toString(): String = buildString {
+        append("{")
+        var first = true
+        forEach { key, value ->
+            if (!first) append(", ")
+            first = false
+            append(key)
+            append(" => ")
+            append(value)
+        }
+        append("}")
+    }
+
+    @PublishedApi
+    internal fun findIndex(key: Int): Int {
+        val hash = hash(key)
+        val hash2 = h2(hash)
+        return _intObjectMapFind(
+            metadata.data,
+            keys,
+            _capacity,
+            key,
+            hash,
+            hash2
+        )
+    }
+
+    internal inline fun forEach(block: (key: Int, value: V) -> Unit) {
+        contract { callsInPlace(block) }
+        val keys = keys
+        val values = values
+        forEachIndex { index ->
+            @Suppress("UNCHECKED_CAST")
+            block(keys[index], values[index] as V)
+        }
+    }
+
+    @PublishedApi
+    internal inline fun forEachIndex(block: (index: Int) -> Unit) {
+        contract { callsInPlace(block) }
+        val m = metadata
+        val lastIndex = m.size - 2
+
+        for (i in 0..lastIndex) {
+            var slot = m[i]
+            if (slot.maskEmptyOrDeleted() != BitmaskMsb) {
+                val bitCount = 8 - ((i - lastIndex).inv() ushr 31)
+                for (j in 0 until bitCount) {
+                    if (isFull(slot and 0xFFL)) {
+                        val index = (i shl 3) + j
+                        block(index)
+                    }
+                    slot = slot shr 8
+                }
+                if (bitCount != 8) return
+            }
+        }
+    }
+
+    public fun asMap(): Map<Int, V> = MapWrapper(this)
+}
+
+/**
+ * [MutableIntObjectMap] is a container with a [Map]-like interface based on a flat hash table
+ * implementation.
+ */
+public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacity) :
+    IntObjectMap<V>() {
+
+    init {
+        requirePrecondition(initialCapacity >= 0) { "Capacity must be a positive value." }
+        initializeStorage(unloadedCapacity(initialCapacity))
+    }
+
+    private fun initializeStorage(initialCapacity: Int) {
+        val newCapacity =
+            if (initialCapacity > 0) {
+                maxOf(7, normalizeCapacity(initialCapacity))
+            } else {
+                0
+            }
+        _capacity = newCapacity
+        initializeMetadata(newCapacity)
+        keys = IntArray(newCapacity)
+        values = arrayOfNulls(newCapacity)
+    }
+
+    private fun initializeMetadata(capacity: Int) {
+        metadata =
+            if (capacity == 0) {
+                EmptyGroupInt
+            } else {
+                val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
+                IntAsLongArray(size).apply { fill(AllEmpty) }
+            }
+        writeRawMetadata(metadata, capacity, Sentinel)
+        initializeGrowth()
+    }
+
+    private fun initializeGrowth() {
+        growthLimit = loadedCapacity(capacity) - _size
+    }
+
+    private var growthLimit = 0
+
+    public operator fun set(key: Int, value: V) {
+        val index = put(key, value)
+        @Suppress("UNCHECKED_CAST")
+        values[index] = value
+    }
+
+    public fun put(key: Int, value: V): Int {
+        val hash = hash(key)
+        val hash1 = h1(hash)
+        val hash2 = h2(hash)
+
+        val outFound = intArrayOf(0)
+        val outCreated = intArrayOf(0)
+        val outSizeDelta = intArrayOf(0)
+        val emptySlot = intArrayOf(-1)
+
+        val index = _intObjectMapFind(metadata.data, keys, capacity, key, hash, hash2)
+        if (index >= 0) {
+            return index
+        }
+
+        val slot = _intObjectMapFindAvailableSlot(metadata.data, capacity, hash1)
+        if (slot >= 0) {
+            emptySlot[0] = slot
+        }
+
+        val finalIndex = _intObjectMapPut(metadata.data, keys, capacity, key, hash, hash2, outCreated, outSizeDelta)
+
+        if (outCreated[0] == 1) {
+            _size += 1
+        }
+
+        return finalIndex
+    }
+
+    public fun putAll(map: Map<out Int, V>) {
+        for ((key, value) in map) {
+            set(key, value)
+        }
+    }
+
+    public fun remove(key: Int): Boolean {
+        val hash = hash(key)
+        val hash2 = h2(hash)
+        val index = _intObjectMapRemove(metadata.data, keys, _capacity, key, hash, hash2)
+        if (index < 0) return false
+        _size -= 1
+        keys[index] = 0
+        values[index] = null
+        return true
+    }
+
+    public inline fun removeIf(predicate: (key: Int, value: V) -> Boolean) {
+        val keys = keys
+        val values = values
+        forEachIndex { index ->
+            @Suppress("UNCHECKED_CAST")
+            if (predicate(keys[index], values[index] as V)) {
+                remove(keys[index])
+            }
+        }
+    }
+
+    public inline fun retain(predicate: (key: Int, value: V) -> Boolean) {
+        val keys = keys
+        val values = values
+        val toRemove = ArrayList<Int>()
+        forEachIndex { index ->
+            @Suppress("UNCHECKED_CAST")
+            if (!predicate(keys[index], values[index] as V)) {
+                toRemove.add(keys[index])
+            }
+        }
+        for (key in toRemove) {
+            remove(key)
+        }
+    }
+
+    public fun clear() {
+        _size = 0
+        if (metadata !== EmptyGroupInt) {
+            metadata.fill(AllEmpty)
+            writeRawMetadata(metadata, _capacity, Sentinel)
+        }
+        keys.fill(0, 0, _capacity)
+        values.fill(null, 0, _capacity)
+        initializeGrowth()
+    }
+
+    public fun trim() {
+        val previousCapacity = _capacity
+        val newCapacity = normalizeCapacity(unloadedCapacity(_size))
+        if (newCapacity < previousCapacity) {
+            resizeStorage(newCapacity)
+        }
+    }
+
+    internal fun resizeStorage(newCapacity: Int) {
+        val previousMetadata = metadata
+        val previousKeys = keys
+        val previousValues = values
+        val previousCapacity = _capacity
+
+        initializeStorage(newCapacity)
+
+        val newMetadata = metadata
+        val newKeys = keys
+        val newValues = values
+        val capacity = _capacity
+
+        for (i in 0 until previousCapacity) {
+            if (isFull(previousMetadata, i)) {
+                val previousKey = previousKeys[i]
+                @Suppress("UNCHECKED_CAST")
+                val previousValue = previousValues[i] as V
+                val hash = hash(previousKey)
+                val index = findFirstAvailableSlot(h1(hash))
+                writeMetadata(newMetadata, capacity, index, h2(hash).toLong())
+                newKeys[index] = previousKey
+                newValues[index] = previousValue
+            }
+        }
+    }
+
+    private fun findFirstAvailableSlot(hash1: Int): Int {
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+        while (true) {
+            val g = group(metadata, probeOffset)
+            val m = g.maskEmptyOrDeleted()
+            if (m != 0L) {
+                return (probeOffset + m.lowestBitSet()) and probeMask
+            }
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
+    }
+
+    public fun asMutableMap(): MutableMap<Int, V> = MutableMapWrapper(this)
+}
+
+private open class MapWrapper<V>(private val parent: IntObjectMap<V>) : Map<Int, V> {
+    override val size: Int
+        get() = parent._size
+
+    override fun isEmpty(): Boolean = parent.isEmpty()
+
+    override fun get(key: Int): V? = parent[key]
+
+    override fun containsKey(key: Int): Boolean = parent.containsKey(key)
+
+    override fun containsValue(value: V): Boolean {
+        parent.forEach { _, v ->
+            if (v == value) return true
+        }
+        return false
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+        other as MapWrapper<*>
+        return parent == other.parent
+    }
+
+    override fun hashCode(): Int = parent.hashCode()
+
+    override fun toString(): String = parent.toString()
+
+    override val entries: Set<Map.Entry<Int, V>>
+        get() = object : Set<Map.Entry<Int, V>> {
+            override val size: Int
+                get() = parent.size
+
+            override fun isEmpty(): Boolean = parent.isEmpty()
+
+            override fun contains(element: Map.Entry<Int, V>): Boolean {
+                return parent[element.key] == element.value
+            }
+
+            override fun iterator(): Iterator<Map.Entry<Int, V>> {
+                return object : Iterator<Map.Entry<Int, V>> {
+                    private var index = 0
+                    private var nextIndex = -1
+                    private var done = false
+
+                    private fun findNext() {
+                        while (index < parent.capacity && !done) {
+                            if (isFull(parent.metadata, index)) {
+                                nextIndex = index
+                                index++
+                                return
+                            }
+                            index++
+                        }
+                        done = true
+                    }
+
+                    init {
+                        findNext()
+                    }
+
+                    override fun hasNext(): Boolean = !done
+
+                    override fun next(): Map.Entry<Int, V> {
+                        val result = object : Map.Entry<Int, V> {
+                            override val key: Int
+                                get() = parent.keys[nextIndex]
+
+                            @Suppress("UNCHECKED_CAST")
+                            override val value: V
+                                get() = parent.values[nextIndex] as V
+                        }
+                        findNext()
+                        return result
+                    }
+                }
+            }
+        }
+
+    override val keys: IntSet
+        get() = object : IntSet() {
+            override val size: Int
+                get() = parent.size
+
+            override fun isEmpty(): Boolean = parent.isEmpty()
+
+            override fun contains(element: Int): Boolean = parent.containsKey(element)
+
+            override fun iterator(): Iterator<Int> {
+                return object : Iterator<Int> {
+                    private var index = 0
+                    private var nextIndex = -1
+                    private var done = false
+
+                    private fun findNext() {
+                        while (index < parent.capacity && !done) {
+                            if (isFull(parent.metadata, index)) {
+                                nextIndex = index
+                                index++
+                                return
+                            }
+                            index++
+                        }
+                        done = true
+                    }
+
+                    init {
+                        findNext()
+                    }
+
+                    override fun hasNext(): Boolean = !done
+
+                    override fun next(): Int {
+                        val result = parent.keys[nextIndex]
+                        findNext()
+                        return result
+                    }
+                }
+            }
+        }
+
+    override val values: Collection<V>
+        get() = object : Collection<V> {
+            override val size: Int
+                get() = parent.size
+
+            override fun isEmpty(): Boolean = parent.isEmpty()
+
+            override fun iterator(): Iterator<V> {
+                return object : Iterator<V> {
+                    private var index = 0
+                    private var nextIndex = -1
+                    private var done = false
+
+                    private fun findNext() {
+                        while (index < parent.capacity && !done) {
+                            if (isFull(parent.metadata, index)) {
+                                nextIndex = index
+                                index++
+                                return
+                            }
+                            index++
+                        }
+                        done = true
+                    }
+
+                    init {
+                        findNext()
+                    }
+
+                    override fun hasNext(): Boolean = !done
+
+                    @Suppress("UNCHECKED_CAST")
+                    override fun next(): V = parent.values[nextIndex] as V
+                }
+            }
+
+            override fun contains(element: V): Boolean {
+                parent.forEach { _, v ->
+                    if (v == element) return true
+                }
+                return false
+            }
+        }
+}
+
+private class MutableMapWrapper<V>(private val parent: MutableIntObjectMap<V>) :
+    MapWrapper<V>(parent), MutableMap<Int, V> {
+
+    override fun clear() = parent.clear()
+
+    override fun put(key: Int, value: V): V? {
+        val oldValue = parent[key]
+        parent[key] = value
+        return oldValue
+    }
+
+    override fun putAll(map: Map<out Int, V>) = parent.putAll(map)
+
+    override fun remove(key: Int): V? {
+        val oldValue = parent[key]
+        parent.remove(key)
+        return oldValue
+    }
+
+    override val entries: MutableSet<Map.Entry<Int, V>>
+        get() = object : MutableSet<Map.Entry<Int, V>> {
+            override val size: Int
+                get() = parent.size
+
+            override fun isEmpty(): Boolean = parent.isEmpty()
+
+            override fun add(element: Map.Entry<Int, V>): Boolean {
+                val oldValue = parent[element.key]
+                parent[element.key] = element.value
+                return oldValue != element.value
+            }
+
+            override fun addAll(elements: Collection<Map.Entry<Int, V>>): Boolean {
+                var result = false
+                for (element in elements) {
+                    val oldValue = parent[element.key]
+                    parent[element.key] = element.value
+                    if (oldValue != element.value) result = true
+                }
+                return result
+            }
+
+            override fun clear() = parent.clear()
+
+            override fun contains(element: Map.Entry<Int, V>): Boolean {
+                return parent[element.key] == element.value
+            }
+
+            override fun containsAll(elements: Collection<Map.Entry<Int, V>>): Boolean {
+                elements.forEach { element ->
+                    if (parent[element.key] != element.value) return false
+                }
+                return true
+            }
+
+            override fun iterator(): MutableIterator<Map.Entry<Int, V>> {
+                return object : MutableIterator<Map.Entry<Int, V>> {
+                    private var index = 0
+                    private var nextIndex = -1
+                    private var done = false
+                    private var canRemove = false
+
+                    private fun findNext() {
+                        while (index < parent.capacity && !done) {
+                            if (isFull(parent.metadata, index)) {
+                                nextIndex = index
+                                index++
+                                canRemove = true
+                                return
+                            }
+                            index++
+                        }
+                        done = true
+                        canRemove = false
+                    }
+
+                    init {
+                        findNext()
+                    }
+
+                    override fun hasNext(): Boolean = !done
+
+                    override fun next(): Map.Entry<Int, V> {
+                        if (!hasNext()) throw NoSuchElementException()
+                        canRemove = false
+                        val result = object : Map.Entry<Int, V> {
+                            override val key: Int
+                                get() = parent.keys[nextIndex]
+
+                            @Suppress("UNCHECKED_CAST")
+                            override val value: V
+                                get() = parent.values[nextIndex] as V
+                        }
+                        findNext()
+                        return result
+                    }
+
+                    override fun remove() {
+                        if (!canRemove) throw IllegalStateException()
+                        parent.remove(parent.keys[nextIndex])
+                        canRemove = false
+                    }
+                }
+            }
+
+            override fun removeAll(elements: Collection<Map.Entry<Int, V>>): Boolean {
+                var result = false
+                elements.forEach { element ->
+                    if (parent[element.key] == element.value) {
+                        parent.remove(element.key)
+                        result = true
+                    }
+                }
+                return result
+            }
+
+            override fun retainAll(elements: Collection<Map.Entry<Int, V>>): Boolean {
+                val toRemove = ArrayList<Int>()
+                parent.forEach { key, value ->
+                    var found = false
+                    elements.forEach { element ->
+                        if (element.key == key && element.value == value) {
+                            found = true
+                            return@forEach
+                        }
+                    }
+                    if (!found) toRemove.add(key)
+                }
+                toRemove.forEach { parent.remove(it) }
+                return toRemove.isNotEmpty()
+            }
+        }
+
+    override val keys: MutableIntSet
+        get() = object : MutableIntSet() {
+            override val size: Int
+                get() = parent.size
+
+            override fun isEmpty(): Boolean = parent.isEmpty()
+
+            override fun contains(element: Int): Boolean = parent.containsKey(element)
+
+            override fun iterator(): MutableIterator<Int> {
+                return object : MutableIterator<Int> {
+                    private var index = 0
+                    private var nextIndex = -1
+                    private var done = false
+                    private var canRemove = false
+
+                    private fun findNext() {
+                        while (index < parent.capacity && !done) {
+                            if (isFull(parent.metadata, index)) {
+                                nextIndex = index
+                                index++
+                                canRemove = true
+                                return
+                            }
+                            index++
+                        }
+                        done = true
+                        canRemove = false
+                    }
+
+                    init {
+                        findNext()
+                    }
+
+                    override fun hasNext(): Boolean = !done
+
+                    override fun next(): Int {
+                        if (!hasNext()) throw NoSuchElementException()
+                        canRemove = false
+                        val result = parent.keys[nextIndex]
+                        findNext()
+                        return result
+                    }
+
+                    override fun remove() {
+                        if (!canRemove) throw IllegalStateException()
+                        parent.remove(parent.keys[nextIndex])
+                        canRemove = false
+                    }
+                }
+            }
+
+            override fun add(element: Int): Boolean {
+                if (parent.containsKey(element)) return false
+                parent[element] = Unit as Any
+                return true
+            }
+
+            override fun addAll(elements: Collection<Int>): Boolean {
+                var result = false
+                elements.forEach { element ->
+                    if (!parent.containsKey(element)) {
+                        parent[element] = Unit as Any
+                        result = true
+                    }
+                }
+                return result
+            }
+
+            override fun clear() = parent.clear()
+
+            override fun remove(element: Int): Boolean = parent.remove(element)
+
+            override fun retainAll(elements: Collection<Int>): Boolean {
+                val toRemove = ArrayList<Int>()
+                forEach { key ->
+                    if (key !in elements) toRemove.add(key)
+                }
+                toRemove.forEach { parent.remove(it) }
+                return toRemove.isNotEmpty()
+            }
+
+            override fun removeAll(elements: Collection<Int>): Boolean {
+                var result = false
+                elements.forEach { element ->
+                    if (parent.remove(element)) result = true
+                }
+                return result
+            }
+        }
+
+    override val values: MutableCollection<V>
+        get() = object : MutableCollection<V> {
+            override val size: Int
+                get() = parent.size
+
+            override fun isEmpty(): Boolean = parent.isEmpty()
+
+            override fun iterator(): MutableIterator<V> {
+                return object : MutableIterator<V> {
+                    private var index = 0
+                    private var nextIndex = -1
+                    private var done = false
+                    private var canRemove = false
+
+                    private fun findNext() {
+                        while (index < parent.capacity && !done) {
+                            if (isFull(parent.metadata, index)) {
+                                nextIndex = index
+                                index++
+                                canRemove = true
+                                return
+                            }
+                            index++
+                        }
+                        done = true
+                        canRemove = false
+                    }
+
+                    init {
+                        findNext()
+                    }
+
+                    override fun hasNext(): Boolean = !done
+
+                    @Suppress("UNCHECKED_CAST")
+                    override fun next(): V {
+                        if (!hasNext()) throw NoSuchElementException()
+                        canRemove = false
+                        val result = parent.values[nextIndex] as V
+                        findNext()
+                        return result
+                    }
+
+                    override fun remove() {
+                        if (!canRemove) throw IllegalStateException()
+                        parent.remove(parent.keys[nextIndex])
+                        canRemove = false
+                    }
+                }
+            }
+
+            override fun add(element: V): Boolean = throw UnsupportedOperationException()
+
+            override fun addAll(elements: Collection<V>): Boolean = throw UnsupportedOperationException()
+
+            override fun clear() = parent.clear()
+
+            override fun remove(element: V): Boolean {
+                val keys = parent.keys
+                val values = parent.values
+                for (i in 0 until parent.capacity) {
+                    if (isFull(parent.metadata, i)) {
+                        @Suppress("UNCHECKED_CAST")
+                        if (values[i] == element) {
+                            parent.remove(keys[i])
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
+
+            override fun retainAll(elements: Collection<V>): Boolean {
+                val toRemove = ArrayList<Int>()
+                parent.forEach { key, value ->
+                    if (value !in elements) toRemove.add(key)
+                }
+                toRemove.forEach { parent.remove(it) }
+                return toRemove.isNotEmpty()
+            }
+
+            override fun removeAll(elements: Collection<V>): Boolean {
+                val toRemove = ArrayList<Int>()
+                parent.forEach { key, value ->
+                    if (value in elements) toRemove.add(key)
+                }
+                toRemove.forEach { parent.remove(it) }
+                return toRemove.isNotEmpty()
+            }
+
+            override fun contains(element: V): Boolean {
+                parent.forEach { _, value ->
+                    if (value == element) return true
+                }
+                return false
+            }
+
+            override fun containsAll(elements: Collection<V>): Boolean {
+                elements.forEach { element ->
+                    if (!contains(element)) return false
+                }
+                return true
+            }
+        }
+}

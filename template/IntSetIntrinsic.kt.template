@@ -1,0 +1,717 @@
+/*
+ * Copyright 2023 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+@file:Suppress(
+    "RedundantVisibilityModifier",
+    "KotlinRedundantDiagnosticSuppress",
+    "KotlinConstantConditions",
+    "PropertyName",
+    "ConstPropertyName",
+    "PrivatePropertyName",
+    "NOTHING_TO_INLINE"
+)
+@file:OptIn(ExperimentalContracts::class)
+
+package androidx.collection
+
+import androidx.annotation.IntRange
+import androidx.collection.internal.IntAsLongArray
+import androidx.collection.internal.requirePrecondition
+import androidx.collection.internal.throwNoSuchElementExceptionForInline
+import androidx.collection.internal._intsetFind
+import androidx.collection.internal._intsetAdd
+import androidx.collection.internal._intsetRemove
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
+import kotlin.jvm.JvmField
+import kotlin.jvm.JvmOverloads
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// DO NOT MAKE CHANGES to the kotlin source file.
+//
+// This file was generated from a template in the template directory.
+// Make a change to the original template and run the generateCollections.sh script
+// to ensure the change is available on all versions of the map.
+// -=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+// Default empty set to avoid allocations
+private val EmptyIntSet = MutableIntSet(0)
+
+internal val EmptyIntArray = IntArray(0)
+
+/**
+ * Returns an empty, read-only [IntSet].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun emptyIntSet(): IntSet = EmptyIntSet as IntSet
+
+/**
+ * Returns an empty, read-only [IntSet].
+ */
+@Suppress("UNCHECKED_CAST")
+public fun intSetOf(): IntSet = EmptyIntSet as IntSet
+
+/**
+ * Returns a new read-only [IntSet] with only [element1] in it.
+ */
+@Suppress("UNCHECKED_CAST")
+public fun intSetOf(element1: Int): IntSet = mutableIntSetOf(element1)
+
+/**
+ * Returns a new read-only [IntSet] with only [element1] and [element2] in it.
+ */
+@Suppress("UNCHECKED_CAST")
+public fun intSetOf(element1: Int, element2: Int): IntSet =
+    mutableIntSetOf(element1, element2)
+
+/**
+ * Returns a new read-only [IntSet] with only [element1], [element2], and [element3] in it.
+ */
+@Suppress("UNCHECKED_CAST")
+public fun intSetOf(element1: Int, element2: Int, element3: Int): IntSet =
+    mutableIntSetOf(element1, element2, element3)
+
+/**
+ * Returns a new read-only [IntSet] with only [elements] in it.
+ */
+@Suppress("UNCHECKED_CAST")
+public fun intSetOf(vararg elements: Int): IntSet =
+    MutableIntSet(elements.size).apply { plusAssign(elements) }
+
+/**
+ * Returns a new [MutableIntSet].
+ */
+public fun mutableIntSetOf(): MutableIntSet = MutableIntSet()
+
+/**
+ * Returns a new [MutableIntSet] with only [element1] in it.
+ */
+public fun mutableIntSetOf(element1: Int): MutableIntSet<Int> =
+    MutableIntSet<Int>(1).apply { plusAssign(element1) }
+
+/**
+ * Returns a new [MutableIntSet] with only [element1] and [element2] in it.
+ */
+public fun mutableIntSetOf(element1: Int, element2: Int): MutableIntSet<Int> =
+    MutableIntSet<Int>(2).apply {
+        plusAssign(element1)
+        plusAssign(element2)
+    }
+
+/**
+ * Returns a new [MutableIntSet] with only [element1], [element2], and [element3] in it.
+ */
+public fun mutableIntSetOf(element1: Int, element2: Int, element3: Int): MutableIntSet<Int> =
+    MutableIntSet<Int>(3).apply {
+        plusAssign(element1)
+        plusAssign(element2)
+        plusAssign(element3)
+    }
+
+/**
+ * Returns a new [MutableIntSet] with the specified contents.
+ */
+public fun mutableIntSetOf(vararg elements: Int): MutableIntSet<Int> =
+    MutableIntSet<Int>(elements.size).apply { plusAssign(elements) }
+
+/**
+ * [IntSet] is a container with a [Set]-like interface based on a flat hash table
+ * implementation. The underlying implementation is designed to avoid all allocations on insertion,
+ * removal, retrieval, and iteration. Allocations may still happen on insertion when the underlying
+ * storage needs to grow to accommodate newly added elements to the set.
+ *
+ * This implementation makes no guarantee as to the order of the elements, nor does it make
+ * guarantees that the order remains constant over time.
+ *
+ * Though [IntSet] offers a read-only interface, it is always backed by a [MutableIntSet].
+ * Read operations alone are thread-safe. However, any mutations done through the backing
+ * [MutableIntSet] while reading on another thread are not safe and the developer must protect
+ * the set from such changes during read operations.
+ *
+ * **Note**: when a [Set] is absolutely necessary, you can use the method [asSet] to create a thin
+ * wrapper around a [IntSet]. Please refer to [asSet] for more details and caveats.
+ *
+ * @see [MutableIntSet]
+ */
+public sealed class IntSet {
+    @PublishedApi @JvmField internal var metadata: IntAsLongArray = EmptyGroupInt
+
+    @PublishedApi @JvmField internal var elements: IntArray = EmptyIntArray
+
+    @JvmField internal var _capacity: Int = 0
+
+    @get:IntRange(from = 0)
+    public val capacity: Int
+        get() = _capacity
+
+    @JvmField internal var _size: Int = 0
+
+    @get:IntRange(from = 0)
+    public val size: Int
+        get() = _size
+
+    public fun any(): Boolean = _size != 0
+
+    public fun none(): Boolean = _size == 0
+
+    public fun isEmpty(): Boolean = _size == 0
+
+    public fun isNotEmpty(): Boolean = _size != 0
+
+    public fun first(): Int {
+        forEach {
+            return it
+        }
+        throwNoSuchElementExceptionForInline("The IntSet is empty")
+    }
+
+    public inline fun first(predicate: (element: Int) -> Boolean): Int {
+        contract { callsInPlace(predicate) }
+        forEach { if (predicate(it)) return it }
+        throwNoSuchElementExceptionForInline("Could not find a match")
+    }
+
+    public inline fun firstOrNull(predicate: (element: Int) -> Boolean): Int? {
+        contract { callsInPlace(predicate) }
+        forEach { if (predicate(it)) return it }
+        return null
+    }
+
+    @PublishedApi
+    internal inline fun forEachIndex(block: (index: Int) -> Unit) {
+        contract { callsInPlace(block) }
+        val m = metadata
+        val lastIndex = m.size - 2
+
+        for (i in 0..lastIndex) {
+            var slot = m[i]
+            if (slot.maskEmptyOrDeleted() != BitmaskMsb) {
+                val bitCount = 8 - ((i - lastIndex).inv() ushr 31)
+                for (j in 0 until bitCount) {
+                    if (isFull(slot and 0xFFL)) {
+                        val index = (i shl 3) + j
+                        block(index)
+                    }
+                    slot = slot shr 8
+                }
+                if (bitCount != 8) return
+            }
+        }
+    }
+
+    public inline fun forEach(block: (element: Int) -> Unit) {
+        contract { callsInPlace(block) }
+        val elements = elements
+        forEachIndex { index -> block(elements[index]) }
+    }
+
+    public inline fun all(predicate: (element: Int) -> Boolean): Boolean {
+        contract { callsInPlace(predicate) }
+        forEach { element -> if (!predicate(element)) return false }
+        return true
+    }
+
+    public inline fun any(predicate: (element: Int) -> Boolean): Boolean {
+        contract { callsInPlace(predicate) }
+        forEach { element -> if (predicate(element)) return true }
+        return false
+    }
+
+    @IntRange(from = 0) public fun count(): Int = size
+
+    @IntRange(from = 0)
+    public inline fun count(predicate: (element: Int) -> Boolean): Int {
+        contract { callsInPlace(predicate) }
+        var count = 0
+        forEach { element -> if (predicate(element)) count++ }
+        return count
+    }
+
+    public operator fun contains(element: Int): Boolean = findElementIndex(element) >= 0
+
+    @JvmOverloads
+    public fun joinToString(
+        separator: CharSequence = ", ",
+        prefix: CharSequence = "",
+        postfix: CharSequence = "",
+        limit: Int = -1,
+        truncated: CharSequence = "..."
+    ): String = buildString {
+        append(prefix)
+        var index = 0
+        this@IntSet.forEach { element ->
+            if (index == limit) {
+                append(truncated)
+                return@buildString
+            }
+            if (index != 0) {
+                append(separator)
+            }
+            append(element)
+            index++
+        }
+        append(postfix)
+    }
+
+    public override fun hashCode(): Int {
+        var hash = _capacity
+        hash = 31 * hash + _size
+        forEach { element ->
+            hash += element.hashCode()
+        }
+        return hash
+    }
+
+    public override fun equals(other: Any?): Boolean {
+        if (other === this) {
+            return true
+        }
+        if (other !is IntSet) {
+            return false
+        }
+        if (other.size != size) {
+            return false
+        }
+        forEach { element ->
+            if (element !in other) {
+                return false
+            }
+        }
+        return true
+    }
+
+    public override fun toString(): String =
+        joinToString(prefix = "[", postfix = "]")
+
+    internal inline fun findElementIndex(element: Int): Int {
+        val hash = hash(element)
+        val hash2 = h2(hash)
+        return _intsetFind(
+            metadata.data,
+            elements,
+            _capacity,
+            element,
+            hash,
+            hash2
+        )
+    }
+
+    public fun asSet(): Set<Int> = SetWrapper(this)
+}
+
+/**
+ * [MutableIntSet] is a container with a [MutableSet]-like interface based on a flat hash table
+ * implementation.
+ */
+public class MutableIntSet(initialCapacity: Int = DefaultScatterCapacity) : IntSet() {
+    private var growthLimit = 0
+
+    init {
+        requirePrecondition(initialCapacity >= 0) { "Capacity must be a positive value." }
+        initializeStorage(unloadedCapacity(initialCapacity))
+    }
+
+    private fun initializeStorage(initialCapacity: Int) {
+        val newCapacity =
+            if (initialCapacity > 0) {
+                maxOf(7, normalizeCapacity(initialCapacity))
+            } else {
+                0
+            }
+        _capacity = newCapacity
+        initializeMetadata(newCapacity)
+        elements = IntArray(newCapacity)
+    }
+
+    private fun initializeMetadata(capacity: Int) {
+        metadata =
+            if (capacity == 0) {
+                EmptyGroupInt
+            } else {
+                val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
+                IntAsLongArray(size).apply { fill(AllEmpty) }
+            }
+        writeRawMetadata(metadata, capacity, Sentinel)
+        initializeGrowth()
+    }
+
+    private fun initializeGrowth() {
+        growthLimit = loadedCapacity(capacity) - _size
+    }
+
+    public fun add(element: Int): Boolean {
+        val oldSize = size
+        val index = findAbsoluteInsertIndex(element)
+        elements[index] = element
+        return size != oldSize
+    }
+
+    public operator fun plusAssign(element: Int) {
+        val index = findAbsoluteInsertIndex(element)
+        elements[index] = element
+    }
+
+    public fun addAll(@Suppress("ArrayReturn") elements: IntArray): Boolean {
+        val oldSize = size
+        plusAssign(elements)
+        return oldSize != size
+    }
+
+    public fun addAll(elements: Iterable<Int>): Boolean {
+        val oldSize = size
+        plusAssign(elements)
+        return oldSize != size
+    }
+
+    public fun addAll(elements: Sequence<Int>): Boolean {
+        val oldSize = size
+        plusAssign(elements)
+        return oldSize != size
+    }
+
+    public fun addAll(elements: IntSet): Boolean {
+        val oldSize = size
+        plusAssign(elements)
+        return oldSize != size
+    }
+
+    public operator fun plusAssign(@Suppress("ArrayReturn") elements: IntArray) {
+        elements.forEach { element -> plusAssign(element) }
+    }
+
+    public operator fun plusAssign(elements: Iterable<Int>) {
+        elements.forEach { element -> plusAssign(element) }
+    }
+
+    public operator fun plusAssign(elements: Sequence<Int>) {
+        elements.forEach { element -> plusAssign(element) }
+    }
+
+    public operator fun plusAssign(elements: IntSet) {
+        elements.forEach { element -> plusAssign(element) }
+    }
+
+    public fun remove(element: Int): Boolean {
+        val hash = hash(element)
+        val hash2 = h2(hash)
+        val index = _intsetRemove(metadata.data, elements, _capacity, element, hash, hash2)
+        if (index < 0) return false
+        _size -= 1
+        elements[index] = 0
+        return true
+    }
+
+    public operator fun minusAssign(element: Int) {
+        val index = findElementIndex(element)
+        if (index >= 0) {
+            removeElementAt(index)
+        }
+    }
+
+    public fun removeAll(@Suppress("ArrayReturn") elements: IntArray): Boolean {
+        val oldSize = size
+        minusAssign(elements)
+        return oldSize != size
+    }
+
+    public fun removeAll(elements: Sequence<Int>): Boolean {
+        val oldSize = size
+        minusAssign(elements)
+        return oldSize != size
+    }
+
+    public fun removeAll(elements: Iterable<Int>): Boolean {
+        val oldSize = size
+        minusAssign(elements)
+        return oldSize != size
+    }
+
+    public fun removeAll(elements: IntSet): Boolean {
+        val oldSize = size
+        minusAssign(elements)
+        return oldSize != size
+    }
+
+    public operator fun minusAssign(@Suppress("ArrayReturn") elements: IntArray) {
+        elements.forEach { element -> minusAssign(element) }
+    }
+
+    public operator fun minusAssign(elements: Sequence<Int>) {
+        elements.forEach { element -> minusAssign(element) }
+    }
+
+    public operator fun minusAssign(elements: Iterable<Int>) {
+        elements.forEach { element -> minusAssign(element) }
+    }
+
+    public operator fun minusAssign(elements: IntSet) {
+        elements.forEach { element -> minusAssign(element) }
+    }
+
+    public inline fun removeIf(predicate: (Int) -> Boolean) {
+        val elements = elements
+        forEachIndex { index ->
+            if (predicate(elements[index])) {
+                removeElementAt(index)
+            }
+        }
+    }
+
+    public fun retainAll(elements: Collection<Int>): Boolean {
+        val internalElements = this.elements
+        val startSize = _size
+        forEachIndex { index ->
+            if (internalElements[index] !in elements) {
+                removeElementAt(index)
+            }
+        }
+        return startSize != _size
+    }
+
+    public fun retainAll(elements: IntSet): Boolean {
+        val internalElements = this.elements
+        val startSize = _size
+        forEachIndex { index ->
+            if (internalElements[index] !in elements) {
+                removeElementAt(index)
+            }
+        }
+        return startSize != _size
+    }
+
+    public inline fun retainAll(predicate: (Int) -> Boolean): Boolean {
+        val elements = elements
+        val startSize = _size
+        forEachIndex { index ->
+            if (!predicate(elements[index])) {
+                removeElementAt(index)
+            }
+        }
+        return startSize != _size
+    }
+
+    @PublishedApi
+    internal fun removeElementAt(index: Int) {
+        _size -= 1
+        writeMetadata(metadata, _capacity, index, Deleted)
+        elements[index] = 0
+    }
+
+    public fun clear() {
+        _size = 0
+        if (metadata !== EmptyGroupInt) {
+            metadata.fill(AllEmpty)
+            writeRawMetadata(metadata, _capacity, Sentinel)
+        }
+        elements.fill(0, 0, _capacity)
+        initializeGrowth()
+    }
+
+    private fun findAbsoluteInsertIndex(element: Int): Int {
+        val hash = hash(element)
+        val hash1 = h1(hash)
+        val hash2 = h2(hash)
+
+        val outCreated = intArrayOf(0)
+        val outSizeDelta = intArrayOf(0)
+        val index = _intsetAdd(metadata.data, elements, capacity, element, hash, hash2, outCreated, outSizeDelta)
+        if (outCreated[0] == 1) {
+            _size += 1
+        }
+        return index
+    }
+
+    public fun trim(): Int {
+        val previousCapacity = _capacity
+        val newCapacity = normalizeCapacity(unloadedCapacity(_size))
+        if (newCapacity < previousCapacity) {
+            resizeStorage(newCapacity)
+            return previousCapacity - _capacity
+        }
+        return 0
+    }
+
+    internal fun adjustStorage() {
+        if (_capacity > GroupWidth && _size.toULong() * 32UL <= _capacity.toULong() * 25UL) {
+            dropDeletes()
+        } else {
+            resizeStorage(nextCapacity(_capacity))
+        }
+    }
+
+    internal fun dropDeletes() {
+        val metadata = metadata
+        val capacity = _capacity
+        val elements = elements
+
+        convertMetadataForCleanup(metadata, capacity)
+
+        var index = 0
+
+        while (index != capacity) {
+            var m = readRawMetadata(metadata, index)
+            if (m == Empty) {
+                index++
+                continue
+            }
+
+            if (m != Deleted) {
+                index++
+                continue
+            }
+
+            val hash = hash(elements[index])
+            val hash1 = h1(hash)
+            val targetIndex = findFirstAvailableSlot(hash1)
+
+            val probeOffset = hash1 and capacity
+            val newProbeIndex = ((targetIndex - probeOffset) and capacity) / GroupWidth
+            val oldProbeIndex = ((index - probeOffset) and capacity) / GroupWidth
+
+            if (newProbeIndex == oldProbeIndex) {
+                val hash2 = h2(hash)
+                writeRawMetadata(metadata, index, hash2.toLong())
+                metadata[metadata.lastIndex] =
+                    (Empty shl 56) or (metadata[0] and 0x00ffffff_ffffffffL)
+                index++
+                continue
+            }
+
+            m = readRawMetadata(metadata, targetIndex)
+            if (m == Empty) {
+                val hash2 = h2(hash)
+                writeRawMetadata(metadata, targetIndex, hash2.toLong())
+                writeRawMetadata(metadata, index, Empty)
+                elements[targetIndex] = elements[index]
+                elements[index] = 0
+            } else {
+                val hash2 = h2(hash)
+                writeRawMetadata(metadata, targetIndex, hash2.toLong())
+                val oldElement = elements[targetIndex]
+                elements[targetIndex] = elements[index]
+                elements[index] = oldElement
+                index--
+            }
+
+            metadata[metadata.lastIndex] = (Empty shl 56) or (metadata[0] and 0x00ffffff_ffffffffL)
+            index++
+        }
+
+        initializeGrowth()
+    }
+
+    internal fun resizeStorage(newCapacity: Int) {
+        val previousMetadata = metadata
+        val previousElements = elements
+        val previousCapacity = _capacity
+
+        initializeStorage(newCapacity)
+
+        val newMetadata = metadata
+        val newElements = elements
+        val capacity = _capacity
+
+        for (i in 0 until previousCapacity) {
+            if (isFull(previousMetadata, i)) {
+                val previousElement = previousElements[i]
+                val hash = hash(previousElement)
+                val index = findFirstAvailableSlot(h1(hash))
+                writeMetadata(newMetadata, capacity, index, h2(hash).toLong())
+                newElements[index] = previousElement
+            }
+        }
+    }
+
+    private fun findFirstAvailableSlot(hash1: Int): Int {
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+        while (true) {
+            val g = group(metadata, probeOffset)
+            val m = g.maskEmptyOrDeleted()
+            if (m != 0L) {
+                return (probeOffset + m.lowestBitSet()) and probeMask
+            }
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
+    }
+
+    public fun asMutableSet(): MutableSet<Int> = MutableSetWrapper(this)
+}
+
+private open class SetWrapper(private val parent: IntSet) : Set<Int> {
+    override val size: Int
+        get() = parent._size
+
+    override fun containsAll(elements: Collection<Int>): Boolean {
+        elements.forEach { element ->
+            if (!parent.contains(element)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    override fun contains(element: Int): Boolean {
+        return parent.contains(element)
+    }
+
+    override fun isEmpty(): Boolean = parent.isEmpty()
+
+    override fun iterator(): Iterator<Int> {
+        return iterator { parent.forEach { element -> yield(element) } }
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+        other as SetWrapper<*>
+        return parent == other.parent
+    }
+
+    override fun hashCode(): Int = parent.hashCode()
+    override fun toString(): String = parent.toString()
+}
+
+private class MutableSetWrapper(private val parent: MutableIntSet) :
+    SetWrapper(parent), MutableSet<Int> {
+    override fun add(element: Int): Boolean = parent.add(element)
+    override fun addAll(elements: Collection<Int>): Boolean = parent.addAll(elements)
+    override fun clear() = parent.clear()
+    override fun iterator(): MutableIterator<Int> =
+        object : MutableIterator<Int> {
+            var current = -1
+            val iterator = iterator {
+                parent.forEachIndex { index ->
+                    current = index
+                    yield(parent.elements[index])
+                }
+            }
+            override fun hasNext(): Boolean = iterator.hasNext()
+            override fun next(): Int = iterator.next()
+            override fun remove() {
+                if (current != -1) {
+                    parent.removeElementAt(current)
+                    current = -1
+                }
+            }
+        }
+    override fun remove(element: Int): Boolean = parent.remove(element)
+    override fun retainAll(elements: Collection<Int>): Boolean = parent.retainAll(elements)
+    override fun removeAll(elements: Collection<Int>): Boolean = parent.removeAll(elements)
+}
