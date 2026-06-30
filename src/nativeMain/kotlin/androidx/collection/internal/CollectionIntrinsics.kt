@@ -321,15 +321,14 @@ internal actual fun _intsetFind(
     return -1
 }
 
-internal actual fun _intsetAdd(
+internal actual fun _intsetFindSlot(
     metadataFlat: IntArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
     hash: Int,
     hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray
+    emptySlot: IntArray,
 ): Int {
     val probeMask = capacity
     var probeOffset = h1(hash) and probeMask
@@ -341,25 +340,20 @@ internal actual fun _intsetAdd(
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
             if (elements[index] == element) {
-                outCreated[0] = 0
-                outSizeDelta[0] = 0
                 return index
             }
             m = m.next()
         }
 
         if (g.maskEmpty() != 0L) {
-            val emptyIndex = (probeOffset + m.get()) and probeMask
-            writeByte(metadataFlat, emptyIndex, hash2.toLong())
-            elements[emptyIndex] = element
-            outCreated[0] = 1
-            outSizeDelta[0] = 1
-            return emptyIndex
+            break
         }
 
         probeIndex += GroupWidth
         probeOffset = (probeOffset + probeIndex) and probeMask
     }
+    emptySlot[0] = findFirstAvailableSlot(metadataFlat, capacity, h1(hash))
+    return -1
 }
 
 internal actual fun _intsetRemove(

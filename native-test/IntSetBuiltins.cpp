@@ -89,6 +89,16 @@ static int32_t* get_int32_data(JSContext *ctx, JSValueConst val, const char* arg
   return (int32_t*)data;
 }
 
+static inline int32_t read_int_element(JSContext *ctx, JSValueConst arr, int32_t index) {
+  JSValue val = JS_GetPropertyUint32(ctx, arr, (uint32_t)index);
+  if (JS_IsException(val)) {
+    return -1;
+  }
+  int32_t result = JS_VALUE_GET_INT(val);
+  JS_FreeValue(ctx, val);
+  return result;
+}
+
 static inline int32_t read_meta_byte(const int32_t* flat, int32_t offset) {
   return (int32_t)((uint8_t*)flat)[offset];
 }
@@ -262,6 +272,46 @@ static JSValue c_intset_add(JSContext *ctx, JSValueConst this_val, int argc, JSV
         probeIndex += 8;
         probeOffset = (probeOffset + probeIndex) & mask;
     }
+}
+
+static int32_t find_first_available_slot(const int32_t* meta, int32_t capacity, int32_t hash1);
+
+static JSValue c_intset_find_slot(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t element = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+    int32_t* emptySlot = get_int32_data(ctx, argv[6], "emptySlot");
+    if (!emptySlot) return JS_EXCEPTION;
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            int32_t slotInt = read_int_element(ctx, argv[1], index);
+            if (slotInt == element) {
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) {
+            break;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    emptySlot[0] = find_first_available_slot(meta, capacity, ((uint32_t)hash >> 7) & mask);
+    return JS_NewInt32(ctx, -1);
 }
 
 static JSValue c_intset_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -837,8 +887,8 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   // IntSet intrinsics
   fn = JS_NewCFunction(ctx, c_intset_find,                      "_intsetFind",                      6);
   JS_SetPropertyStr(ctx, globalThis, "_intsetFind", fn);
-  fn = JS_NewCFunction(ctx, c_intset_add,                        "_intsetAdd",                       8);
-  JS_SetPropertyStr(ctx, globalThis, "_intsetAdd", fn);
+  fn = JS_NewCFunction(ctx, c_intset_find_slot,                 "_intsetFindSlot",                  7);
+  JS_SetPropertyStr(ctx, globalThis, "_intsetFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_intset_remove,                     "_intsetRemove",                    6);
   JS_SetPropertyStr(ctx, globalThis, "_intsetRemove", fn);
   // IntObjectMap intrinsics

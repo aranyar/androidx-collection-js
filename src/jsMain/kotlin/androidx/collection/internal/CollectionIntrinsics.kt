@@ -149,16 +149,15 @@ internal actual external fun _intsetFind(
     hash2: Int,
 ): Int
 
-@JsName("_intsetAdd")
-internal actual external fun _intsetAdd(
+@JsName("_intsetFindSlot")
+internal actual external fun _intsetFindSlot(
     metadataFlat: IntArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
     hash: Int,
     hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
+    emptySlot: IntArray,
 ): Int
 
 @JsName("_intsetRemove")

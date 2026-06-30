@@ -28,7 +28,11 @@
 package androidx.collection
 
 import androidx.annotation.IntRange
+import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
+import androidx.collection.internal._intsetFind
+import androidx.collection.internal._intsetFindSlot
+import androidx.collection.internal._intsetRemove
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -150,8 +154,8 @@ public sealed class IntSet {
     // NOTE: Our arrays are marked internal to implement inlined forEach{}
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` elements, including when
-    // the set is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
+    // the set is empty (see [EmptyGroupInt]).
+    @PublishedApi @JvmField internal var metadata: IntAsLongArray = EmptyGroupInt
 
     @PublishedApi @JvmField internal var elements: IntArray = EmptyIntArray
 
@@ -424,30 +428,14 @@ public sealed class IntSet {
     internal inline fun findElementIndex(element: Int): Int {
         val hash = hash(element)
         val hash2 = h2(hash)
-
-        val probeMask = _capacity
-        var probeOffset = h1(hash) and probeMask
-        var probeIndex = 0
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (elements[index] == element) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
-        }
-
-        return -1
+        return _intsetFind(
+            metadata.data,
+            elements,
+            _capacity,
+            element,
+            hash,
+            hash2
+        )
     }
 }
 
@@ -495,13 +483,15 @@ public class MutableIntSet(initialCapacity: Int = DefaultScatterCapacity) : IntS
     private fun initializeMetadata(capacity: Int) {
         metadata =
             if (capacity == 0) {
-                EmptyGroup
+                EmptyGroupInt
             } else {
                 // Round up to the next multiple of 8 and find how many longs we need
                 val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                LongArray(size).apply { fill(AllEmpty) }
+                IntAsLongArray(size).apply {
+                    fill(AllEmpty)
+                    writeRawMetadata(this, capacity, Sentinel)
+                }
             }
-        writeRawMetadata(metadata, capacity, Sentinel)
         initializeGrowth()
     }
 
@@ -585,12 +575,21 @@ public class MutableIntSet(initialCapacity: Int = DefaultScatterCapacity) : IntS
      *   before removal.
      */
     public fun remove(element: Int): Boolean {
-        val index = findElementIndex(element)
-        val exists = index >= 0
-        if (exists) {
-            removeElementAt(index)
+        val hash = hash(element)
+        val hash2 = h2(hash)
+        val index = _intsetRemove(
+            metadata.data,
+            elements,
+            _capacity,
+            element,
+            hash,
+            hash2
+        )
+        if (index >= 0) {
+            _size -= 1
+            return true
         }
-        return exists
+        return false
     }
 
     /**
@@ -599,9 +598,18 @@ public class MutableIntSet(initialCapacity: Int = DefaultScatterCapacity) : IntS
      * @param element The element to remove from the set.
      */
     public operator fun minusAssign(element: Int) {
-        val index = findElementIndex(element)
+        val hash = hash(element)
+        val hash2 = h2(hash)
+        val index = _intsetRemove(
+            metadata.data,
+            elements,
+            _capacity,
+            element,
+            hash,
+            hash2
+        )
         if (index >= 0) {
-            removeElementAt(index)
+            _size -= 1
         }
     }
 
@@ -658,7 +666,7 @@ public class MutableIntSet(initialCapacity: Int = DefaultScatterCapacity) : IntS
     /** Removes all elements from this set. */
     public fun clear() {
         _size = 0
-        if (metadata !== EmptyGroup) {
+        if (metadata !== EmptyGroupInt) {
             metadata.fill(AllEmpty)
             writeRawMetadata(metadata, _capacity, Sentinel)
         }
@@ -676,30 +684,21 @@ public class MutableIntSet(initialCapacity: Int = DefaultScatterCapacity) : IntS
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val probeMask = _capacity
-        var probeOffset = hash1 and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (elements[index] == element) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+        val emptySlot = IntArray(1)
+        val slot = _intsetFindSlot(
+            metadata.data,
+            elements,
+            _capacity,
+            element,
+            hash,
+            hash2,
+            emptySlot
+        )
+        if (slot != -1) {
+            return slot
         }
 
-        var index = findFirstAvailableSlot(hash1)
+        var index = emptySlot[0]
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)

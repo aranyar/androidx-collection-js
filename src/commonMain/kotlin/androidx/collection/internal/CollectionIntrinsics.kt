@@ -80,15 +80,14 @@ internal expect fun _intsetFind(
     hash2: Int,
 ): Int
 
-internal expect fun _intsetAdd(
+internal expect fun _intsetFindSlot(
     metadataFlat: IntArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
     hash: Int,
     hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
+    emptySlot: IntArray,
 ): Int
 
 internal expect fun _intsetRemove(
