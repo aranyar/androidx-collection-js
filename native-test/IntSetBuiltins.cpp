@@ -64,40 +64,30 @@
 //
 // Returns NULL and sets an exception on failure.
 static int32_t* get_int32_data(JSContext *ctx, JSValueConst val, const char* arg_name) {
-  // [DBG] Log entry
-  int input_tag = JS_VALUE_GET_TAG(val);
-  DBG_LOGI("get_int32_data(%s) input tag=%d", arg_name, input_tag);
-
   // First, try to read the .buffer property. This works for both:
   //  - ArrayBuffer.buffer == the ArrayBuffer itself
   //  - TypedArray.buffer  == the underlying ArrayBuffer
   JSValue buf = JS_GetPropertyStr(ctx, val, "buffer");
   if (JS_IsException(buf)) {
-    DBG_LOGE("get_int32_data(%s) FAILED: JS_GetPropertyStr(.buffer) threw", arg_name);
     JSValue exc = JS_GetException(ctx);
     const char* str = JS_ToCString(ctx, exc);
-    DBG_LOGE("  exception: %s", str ? str : "(null)");
     JS_FreeCString(ctx, str);
     JS_FreeValue(ctx, exc);
     JS_ThrowTypeError(ctx, "%s: not an ArrayBuffer or TypedArray (no .buffer property)", arg_name);
     return NULL;
   }
   int buf_tag = JS_VALUE_GET_TAG(buf);
-  DBG_LOGI("get_int32_data(%s) .buffer tag=%d", arg_name, buf_tag);
 
   size_t size;
   uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
   JS_FreeValue(ctx, buf);
   if (!data) {
-    DBG_LOGE("get_int32_data(%s) FAILED: JS_GetArrayBuffer returned NULL", arg_name);
     JSValue exc = JS_GetException(ctx);
     const char* str = JS_ToCString(ctx, exc);
-    DBG_LOGE("  exception: %s", str ? str : "(null)");
     JS_FreeCString(ctx, str);
     JS_FreeValue(ctx, exc);
     return NULL;
   }
-  DBG_LOGI("get_int32_data(%s) OK: data=%p size=%zu", arg_name, data, size);
   return (int32_t*)data;
 }
 
@@ -118,11 +108,6 @@ static inline uint64_t load_group(const int32_t* flat, int32_t offset, int32_t c
     uint64_t lo = ((uint64_t)(uint32_t)flat[i * 2 + 1] << 32) | (uint32_t)flat[i * 2];
     uint64_t hi = ((uint64_t)(uint32_t)flat[(i + 1) * 2 + 1] << 32) | (uint32_t)flat[(i + 1) * 2];
 
-    DBG_LOGI("C load_group: offset=%d capacity=%d i=%d b=%d", offset, capacity, i, b);
-    DBG_LOGI("  flat[%d]=%d flat[%d]=%d flat[%d]=%d flat[%d]=%d",
-             i*2, flat[i*2], i*2+1, flat[i*2+1], (i+1)*2, flat[(i+1)*2], (i+1)*2+1, flat[(i+1)*2+1]);
-    DBG_LOGI("  lo=0x%016llx hi=0x%016llx", (unsigned long long)lo, (unsigned long long)hi);
-
     // Combine the two words to get the 8 bytes starting at byte offset 'offset'.
     uint64_t result;
     if (b == 0) {
@@ -130,7 +115,6 @@ static inline uint64_t load_group(const int32_t* flat, int32_t offset, int32_t c
     } else {
         result = (lo >> b) | (hi << (64 - b));
     }
-    DBG_LOGI("  C load_group -> 0x%016llx", (unsigned long long)result);
     return result;
 }
 
@@ -240,8 +224,6 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
 
-    DBG_LOGI("C _scatterSetFind: capacity=%d hash=%d hash2=%d", capacity, hash, hash2);
-
     int32_t mask = capacity;                       // use capacity (not capacity-1)
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
@@ -249,8 +231,6 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     while (1) {
         uint64_t g = load_group(meta, probeOffset, capacity);
         uint64_t m = match_hash2(g, hash2);
-        DBG_LOGI("  probeOffset=%d g=0x%016llx m=0x%016llx hash2=%d",
-                 probeOffset, (unsigned long long)g, (unsigned long long)m, hash2);
         while (m != 0) {
             int32_t bitIdx = __builtin_ctzll(m);
             int32_t byteInGroup = bitIdx >> 3;
@@ -262,7 +242,6 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
             int eq = kotlin_equals(ctx, slotVal, element);
             JS_FreeValue(ctx, slotVal);
             if (eq) {
-                DBG_LOGI("  C _scatterSetFind -> index=%d", index);
                 return JS_NewInt32(ctx, index);
             }
             m &= m - 1;
@@ -273,7 +252,6 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
         probeIndex += 8;
         probeOffset = (probeOffset + probeIndex) & mask;
     }
-    DBG_LOGI("  C _scatterSetFind -> -1");
     return JS_NewInt32(ctx, -1);
 }
 

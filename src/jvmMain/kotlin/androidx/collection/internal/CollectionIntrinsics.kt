@@ -20,19 +20,16 @@ internal actual fun _scatterSetFind(
     hash: Int,
     hash2: Int
 ): Int {
-    println("JVM _scatterSetFind: capacity=$capacity hash=$hash hash2=$hash2")
     val mask = capacity
     var probeOffset = h1(hash) and mask
     var probeIndex = 0
     while (true) {
         val g = loadGroup(metadataFlat, probeOffset)
         var m = match(g, hash2)
-        println("  probeOffset=$probeOffset g=${java.lang.Long.toHexString(g)} m=${java.lang.Long.toHexString(m)} hash2=$hash2")
         while (m != 0L) {
             val byteInGroup = m.countTrailingZeroBits() shr 3
             val index = (probeOffset + byteInGroup) and mask
             if (elements[index] == element) {
-                println("  JVM _scatterSetFind -> index=$index")
                 return index
             }
             m = m and (m - 1)
@@ -41,7 +38,6 @@ internal actual fun _scatterSetFind(
         probeIndex += GroupWidth
         probeOffset = (probeOffset + probeIndex) and mask
     }
-    println("  JVM _scatterSetFind -> -1")
     return -1
 }
 
@@ -133,7 +129,6 @@ private fun loadGroup(metadata: IntArray, offset: Int): Long {
     val b = (offset and 0x7) shl 3
     val asLong = IntAsLongArray(metadata)
     val result = (asLong[i] ushr b) or (asLong[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
-    println("    JVM loadGroup: offset=$offset i=$i b=$b asLong[i]=${java.lang.Long.toHexString(asLong[i])} asLong[i+1]=${java.lang.Long.toHexString(asLong[i + 1])} -> ${java.lang.Long.toHexString(result)}")
     return result
 }
 
