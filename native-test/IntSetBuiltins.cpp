@@ -141,7 +141,10 @@ static inline uint64_t mask_deleted(uint64_t g) {
 
 // Combined empty or deleted mask
 static inline uint64_t mask_empty_or_deleted(uint64_t g) {
-    return mask_empty(g) | mask_deleted(g);
+    uint64_t not_g = ~g;
+    uint64_t shifted = not_g << 7;
+    uint64_t temp = g & shifted;
+    return temp & 0x8080808080808080ULL;
 }
 
 // Check if any empty byte exists
@@ -158,10 +161,9 @@ static inline int32_t any_empty_or_deleted(uint64_t g) {
 static inline int32_t first_empty_or_deleted(uint64_t g, int32_t probeOffset, int32_t capacity) {
     uint64_t mask = mask_empty_or_deleted(g);
     if (mask == 0) return -1;
-    int32_t bitIndex = __builtin_ctzll(mask);          // index of first set bit
-    int32_t byteInGroup = bitIndex >> 3;               // bitIndex / 8
-    int32_t maskIdx = capacity - 1;
-    return (probeOffset + byteInGroup) & maskIdx;
+    int32_t bitIndex = __builtin_ctzll(mask);
+    int32_t byteInGroup = bitIndex >> 3;
+    return (probeOffset + byteInGroup) & capacity;   // use capacity, not capacity-1
 }
 
 // ============================================================================
