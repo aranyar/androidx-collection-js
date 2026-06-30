@@ -28,7 +28,6 @@ package androidx.collection
 
 import androidx.annotation.IntRange
 import androidx.collection.internal.EMPTY_OBJECTS
-import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
 import androidx.collection.internal.throwNoSuchElementExceptionForInline
 import androidx.collection.internal._scatterSetFind
@@ -121,7 +120,7 @@ public sealed class ScatterSet<E> {
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` elements, including when
     // the set is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata = EmptyGroupInt
+    @PublishedApi @JvmField internal var metadata = EmptyGroup
 
     @PublishedApi @JvmField internal var elements: Array<Any?> = EMPTY_OBJECTS
 
@@ -394,7 +393,7 @@ public sealed class ScatterSet<E> {
         val hash = hash(element)
         val hash2 = h2(hash)
         return _scatterSetFind(
-            metadata.data,
+            metadata,
             elements,
             _capacity,
             element,
@@ -468,11 +467,11 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     private fun initializeMetadata(capacity: Int) {
         metadata =
             if (capacity == 0) {
-                EmptyGroupInt
+                EmptyGroup
             } else {
                 // Round up to the next multiple of 8 and find how many longs we need
                 val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                IntAsLongArray(size).apply { fill(AllEmpty) }
+                LongArray(size).apply { fill(AllEmpty) }
             }
         writeRawMetadata(metadata, capacity, Sentinel)
         initializeGrowth()
@@ -648,7 +647,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     public fun remove(element: E): Boolean {
         val hash = hash(element)
         val hash2 = h2(hash)
-        val index = _scatterSetRemove(metadata.data, elements, _capacity, element, hash, hash2)
+        val index = _scatterSetRemove(metadata, elements, _capacity, element, hash, hash2)
         if (index < 0) return false
         _size -= 1
         elements[index] = null
@@ -890,7 +889,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
     /** Removes all elements from this set. */
     public fun clear() {
         _size = 0
-        if (metadata !== EmptyGroupInt) {
+        if (metadata !== EmptyGroup) {
             metadata.fill(AllEmpty)
             writeRawMetadata(metadata, _capacity, Sentinel)
         }
@@ -912,7 +911,7 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         val outFound = intArrayOf(0)
 
         val emptySlot = intArrayOf(-1)
-        val slot = _scatterSetFindSlot(metadata.data, elements, capacity, element, hash, hash2, emptySlot)
+        val slot = _scatterSetFindSlot(metadata, elements, capacity, element, hash, hash2, emptySlot)
         if (slot != -1) {
             return slot
         }

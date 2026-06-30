@@ -8,7 +8,7 @@ package androidx.collection.internal
  * at runtime if reached, but they aren't called.
  */
 internal actual fun _scatterSetFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -17,7 +17,7 @@ internal actual fun _scatterSetFind(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _scatterSetFindSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -27,7 +27,7 @@ internal actual fun _scatterSetFindSlot(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _scatterSetRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -36,7 +36,7 @@ internal actual fun _scatterSetRemove(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _scatterMapFindSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
@@ -46,7 +46,7 @@ internal actual fun _scatterMapFindSlot(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _scatterMapFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
@@ -55,7 +55,7 @@ internal actual fun _scatterMapFind(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _scatterMapRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     values: Array<Any?>,
     capacity: Int,
@@ -65,7 +65,7 @@ internal actual fun _scatterMapRemove(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intsetFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -74,7 +74,7 @@ internal actual fun _intsetFind(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intsetAdd(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -85,7 +85,7 @@ internal actual fun _intsetAdd(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intsetRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -94,7 +94,7 @@ internal actual fun _intsetRemove(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intObjectMapFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -103,7 +103,7 @@ internal actual fun _intObjectMapFind(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intObjectMapPut(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -114,7 +114,7 @@ internal actual fun _intObjectMapPut(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intObjectMapRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -123,7 +123,7 @@ internal actual fun _intObjectMapRemove(
 ): Int = error("JS-only intrinsic")
 
 internal actual fun _intObjectMapFindAvailableSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     capacity: Int,
     hash1: Int,
 ): Int = error("JS-only intrinsic")

@@ -2,6 +2,8 @@
 
 package androidx.collection.internal
 
+import androidx.collection.h1
+
 private const val GROUP_WIDTH = 8
 private const val EMPTY = 0x80L
 private const val DELETED = 0xFEL
@@ -12,7 +14,7 @@ private val HIGH_BIT_MASK = 0x8080808080808080UL.toLong()
 private val REPEATED_ONE = 0x0101010101010101L
 
 internal actual fun _scatterSetFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -23,7 +25,7 @@ internal actual fun _scatterSetFind(
     var probeOffset = h1(hash) and mask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m != 0L) {
             val byteInGroup = m.countTrailingZeroBits() shr 3
@@ -41,7 +43,7 @@ internal actual fun _scatterSetFind(
 }
 
 internal actual fun _scatterSetFindSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -54,7 +56,7 @@ internal actual fun _scatterSetFindSlot(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -76,7 +78,7 @@ internal actual fun _scatterSetFindSlot(
 }
 
 internal actual fun _scatterSetRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -88,7 +90,7 @@ internal actual fun _scatterSetRemove(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m != 0L) {
             val byteInGroup = m.countTrailingZeroBits() shr 3
@@ -108,7 +110,7 @@ internal actual fun _scatterSetRemove(
 }
 
 internal actual fun _scatterMapFindSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
@@ -121,7 +123,7 @@ internal actual fun _scatterMapFindSlot(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -143,7 +145,7 @@ internal actual fun _scatterMapFindSlot(
 }
 
 internal actual fun _scatterMapFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
@@ -155,7 +157,7 @@ internal actual fun _scatterMapFind(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -176,7 +178,7 @@ internal actual fun _scatterMapFind(
 }
 
 internal actual fun _scatterMapRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     values: Array<Any?>,
     capacity: Int,
@@ -189,7 +191,7 @@ internal actual fun _scatterMapRemove(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -213,7 +215,7 @@ internal actual fun _scatterMapRemove(
 }
 
 internal actual fun _intsetFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -225,7 +227,7 @@ internal actual fun _intsetFind(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -246,7 +248,7 @@ internal actual fun _intsetFind(
 }
 
 internal actual fun _intsetAdd(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -260,7 +262,7 @@ internal actual fun _intsetAdd(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -287,7 +289,7 @@ internal actual fun _intsetAdd(
 }
 
 internal actual fun _intsetRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -299,7 +301,7 @@ internal actual fun _intsetRemove(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -322,7 +324,7 @@ internal actual fun _intsetRemove(
 }
 
 internal actual fun _intObjectMapFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -334,7 +336,7 @@ internal actual fun _intObjectMapFind(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -355,7 +357,7 @@ internal actual fun _intObjectMapFind(
 }
 
 internal actual fun _intObjectMapPut(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -369,7 +371,7 @@ internal actual fun _intObjectMapPut(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -396,7 +398,7 @@ internal actual fun _intObjectMapPut(
 }
 
 internal actual fun _intObjectMapRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -408,7 +410,7 @@ internal actual fun _intObjectMapRemove(
     var probeIndex = 0
 
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         var m = match(g, hash2)
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
@@ -431,19 +433,19 @@ internal actual fun _intObjectMapRemove(
 }
 
 internal actual fun _intObjectMapFindAvailableSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     capacity: Int,
     hash1: Int,
 ): Int {
     return findFirstAvailableSlot(metadataFlat, capacity, hash1)
 }
 
-private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1: Int): Int {
+private fun findFirstAvailableSlot(metadataFlat: LongArray, capacity: Int, hash1: Int): Int {
     val probeMask = capacity
     var probeOffset = hash1 and probeMask
     var probeIndex = 0
     while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
+        val g = metadataFlat[probeOffset shr 3]
         val m = maskEmptyOrDeleted(g)
         if (m != 0L) {
             return (probeOffset + m.lowestBitSet()) and probeMask
@@ -451,14 +453,6 @@ private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1:
         probeIndex += GROUP_WIDTH
         probeOffset = (probeOffset + probeIndex) and probeMask
     }
-}
-
-private fun loadGroup(metadata: IntArray, offset: Int): Long {
-    val i = offset shr 3
-    val b = (offset and 0x7) shl 3
-    val asLong = IntAsLongArray(metadata)
-    val result = (asLong[i] ushr b) or (asLong[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
-    return result
 }
 
 private fun match(g: Long, hash2: Int): Long {
@@ -480,26 +474,17 @@ private fun maskEmptyOrDeleted(g: Long): Long {
            ((y - REPEATED_ONE) and y.inv() and HIGH_BIT_MASK)
 }
 
-private fun readByte(metadata: IntArray, slot: Int): Long {
-    val intIdx = slot shr 2
-    val byteShift = (slot and 0x3) shl 3
-    return ((metadata[intIdx] ushr byteShift) and 0xFF).toLong()
+private fun readByte(metadata: LongArray, slot: Int): Long {
+    return (metadata[slot shr 3] shr ((slot and 0x7) shl 3)) and 0xff
 }
 
-private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
-    val intIdx = slot shr 2
-    val byteShift = (slot and 0x3) shl 3
-    val byteMask = 0xFF shl byteShift
-
-    val old = metadata[intIdx]
-    val new = (old and byteMask.inv()) or ((value.toInt() and 0xFF) shl byteShift)
-
-    metadata[intIdx] = new
+private fun writeByte(metadata: LongArray, slot: Int, value: Long) {
+    val i = slot shr 3
+    val b = (slot and 0x7) shl 3
+    metadata[i] = (metadata[i] and (0xffL shl b).inv()) or (value shl b)
 }
 
 private fun Long.hasNext(): Boolean = this != 0L
 private fun Long.get(): Int = this.countTrailingZeroBits() shr 3
 private fun Long.next(): Long = this and (this - 1)
 private fun Long.lowestBitSet(): Int = this.countTrailingZeroBits()
-
-private inline fun h1(hash: Int) = hash ushr 7

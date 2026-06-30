@@ -15,7 +15,7 @@ package androidx.collection.internal
  * strict equality (===), which matches Kotlin's `==` on Any?.
  */
 internal expect fun _scatterSetFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -24,7 +24,7 @@ internal expect fun _scatterSetFind(
 ): Int
 
 internal expect fun _scatterSetFindSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -34,7 +34,7 @@ internal expect fun _scatterSetFindSlot(
 ): Int
 
 internal expect fun _scatterSetRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
@@ -43,7 +43,7 @@ internal expect fun _scatterSetRemove(
 ): Int
 
 internal expect fun _scatterMapFindSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
@@ -53,7 +53,7 @@ internal expect fun _scatterMapFindSlot(
 ): Int
 
 internal expect fun _scatterMapFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
@@ -62,7 +62,7 @@ internal expect fun _scatterMapFind(
 ): Int
 
 internal expect fun _scatterMapRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: Array<Any?>,
     values: Array<Any?>,
     capacity: Int,
@@ -72,7 +72,7 @@ internal expect fun _scatterMapRemove(
 ): Int
 
 internal expect fun _intsetFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -81,7 +81,7 @@ internal expect fun _intsetFind(
 ): Int
 
 internal expect fun _intsetAdd(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -92,7 +92,7 @@ internal expect fun _intsetAdd(
 ): Int
 
 internal expect fun _intsetRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     elements: IntArray,
     capacity: Int,
     element: Int,
@@ -101,7 +101,7 @@ internal expect fun _intsetRemove(
 ): Int
 
 internal expect fun _intObjectMapFind(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -110,7 +110,7 @@ internal expect fun _intObjectMapFind(
 ): Int
 
 internal expect fun _intObjectMapPut(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -121,7 +121,7 @@ internal expect fun _intObjectMapPut(
 ): Int
 
 internal expect fun _intObjectMapRemove(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
@@ -130,7 +130,7 @@ internal expect fun _intObjectMapRemove(
 ): Int
 
 internal expect fun _intObjectMapFindAvailableSlot(
-    metadataFlat: IntArray,
+    metadataFlat: LongArray,
     capacity: Int,
     hash1: Int,
 ): Int
