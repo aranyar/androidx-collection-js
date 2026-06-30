@@ -15,26 +15,6 @@
  *
  * C builtins for androidx.collection.IntSet hot operations.
  *
- * Data layout: each IntSet carries a parallel Int32Array `metadataFlat` with
- * length equal to the rounded-up metadata byte count. Byte i of the flat
- * array is the metadata byte for slot i, stored in the low 8 bits of flat[i].
- *
- * Metadata byte values (matching ScatterMap.kt):
- *   0x80 (128)  = Empty
- *   0xFE (254)  = Deleted
- *   0xFF (255)  = Sentinel
- *   0x00..0x7F  = Full, holds hash2 of the element at that slot
- *
- * Function signatures (all return JS_NewInt32):
- *   _intsetFind(metadataFlat, elements, capacity, element, hash, hash2)
- *       -> index >= 0 if found, else -1
- *   _intsetAdd(metadataFlat, elements, capacity, element, hash, hash2, outCreated, outSizeDelta)
- *       -> index (existing or new), outCreated[0] = 0|1, outSizeDelta[0] = 0|1
- *   _intsetRemove(metadataFlat, elements, capacity, element, hash, hash2)
- *       -> removed index, or -1 if not present
- *
- * The Kotlin/JS side keeps `metadataFlat` in sync with `metadata` whenever
- * the latter is mutated (via the new writeRawMetadataFlat primitive).
  */
 #include "quickjs/quickjs.h"
 #include <stdint.h>
@@ -218,60 +198,6 @@ static JSValue c_intset_find(JSContext *ctx, JSValueConst this_val, int argc, JS
         probeOffset = (probeOffset + probeIndex) & mask;
     }
     return JS_NewInt32(ctx, -1);
-}
-
-static JSValue c_intset_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
-    (void)this_val; (void)argc;
-    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
-    if (!meta) return JS_EXCEPTION;
-    // argv[0]=meta, argv[1]=elements, argv[2]=capacity, argv[3]=element, argv[4]=hash, argv[5]=hash2,
-    // argv[6]=outCreated, argv[7]=outSizeDelta
-    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
-    int32_t element = JS_VALUE_GET_INT(argv[3]);
-    int32_t hash = JS_VALUE_GET_INT(argv[4]);
-    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
-    int32_t* outCreated = get_int32_data(ctx, argv[6], "outCreated");
-    if (!outCreated) return JS_EXCEPTION;
-    int32_t* outSizeDelta = get_int32_data(ctx, argv[7], "outSizeDelta");
-    if (!outSizeDelta) return JS_EXCEPTION;
-
-    int32_t mask = capacity;
-    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
-    int32_t probeIndex = 0;
-
-    while (1) {
-        uint64_t g = load_group(meta, probeOffset, capacity);
-        uint64_t m = match_hash2(g, hash2);
-        while (m != 0) {
-            int32_t bitIdx = __builtin_ctzll(m);
-            int32_t byteInGroup = bitIdx >> 3;
-            int32_t index = (probeOffset + byteInGroup) & mask;
-            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
-            if (JS_IsException(slotVal)) {
-                return JS_EXCEPTION;
-            }
-            int32_t slotInt = JS_VALUE_GET_INT(slotVal);
-            JS_FreeValue(ctx, slotVal);
-            if (slotInt == element) {
-                outCreated[0] = 0;
-                outSizeDelta[0] = 0;
-                return JS_NewInt32(ctx, index);
-            }
-            m &= m - 1;
-        }
-        if (any_empty(g)) {
-            int32_t bitIdx = __builtin_ctzll(mask_empty(g));
-            int32_t byteInGroup = bitIdx >> 3;
-            int32_t index = (probeOffset + byteInGroup) & mask;
-            write_meta_byte(meta, index, hash2);
-            JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NewInt32(ctx, element));
-            outCreated[0] = 1;
-            outSizeDelta[0] = 1;
-            return JS_NewInt32(ctx, index);
-        }
-        probeIndex += 8;
-        probeOffset = (probeOffset + probeIndex) & mask;
-    }
 }
 
 static int32_t find_first_available_slot(const int32_t* meta, int32_t capacity, int32_t hash1);
