@@ -226,6 +226,7 @@ internal actual fun _scatterMapFind(
     hash: Int,
     hash2: Int
 ): Int {
+    println("JVM _scatterMapFind ENTRY: cap=$capacity key=$key hash=$hash hash2=$hash2")
     val probeMask = capacity
     var probeOffset = h1(hash) and probeMask
     var probeIndex = 0
@@ -236,6 +237,7 @@ internal actual fun _scatterMapFind(
         while (m.hasNext()) {
             val index = (probeOffset + m.get()) and probeMask
             if (keys[index] == key) {
+                println("JVM _scatterMapFind FOUND index=$index")
                 return index
             }
             m = m.next()
@@ -248,6 +250,7 @@ internal actual fun _scatterMapFind(
         probeIndex += GroupWidth
         probeOffset = (probeOffset + probeIndex) and probeMask
     }
+    println("JVM _scatterMapFind NOT_FOUND")
     return -1
 }
 
