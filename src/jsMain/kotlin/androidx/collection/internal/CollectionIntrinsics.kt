@@ -24,36 +24,18 @@ private val DELETED_BYTE_MASK = 0xFEFEFEFEFEFEFEFEUL.toLong()
 private val HIGH_BIT_MASK = 0x8080808080808080UL.toLong()
 private val REPEATED_ONE = 0x0101010101010101L
 
-internal actual fun _scatterSetFind(
+@JsName("_scatterSetFind")
+internal actual external fun _scatterSetFind(
     metadataFlat: IntArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
     hash: Int,
-    hash2: Int
-): Int {
-    val mask = capacity
-    var probeOffset = h1(hash) and mask
-    var probeIndex = 0
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m != 0L) {
-            val byteInGroup = m.countTrailingZeroBits() shr 3
-            val index = (probeOffset + byteInGroup) and mask
-            if (elements[index] == element) {
-                return index
-            }
-            m = m and (m - 1)
-        }
-        if (hasEmpty(g)) break
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and mask
-    }
-    return -1
-}
+    hash2: Int,
+): Int
 
-internal actual fun _scatterSetFindSlot(
+@JsName("_scatterSetFindSlot")
+internal actual external fun _scatterSetFindSlot(
     metadataFlat: IntArray,
     elements: Array<Any?>,
     capacity: Int,
@@ -61,32 +43,7 @@ internal actual fun _scatterSetFindSlot(
     hash: Int,
     hash2: Int,
     emptySlot: IntArray,
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
-
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (elements[index] == element) {
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    emptySlot[0] = findFirstAvailableSlot(metadataFlat, capacity, h1(hash))
-    return -1
-}
+): Int
 
 private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1: Int): Int {
     val probeMask = capacity
@@ -103,37 +60,15 @@ private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1:
     }
 }
 
-internal actual fun _scatterSetRemove(
+@JsName("_scatterSetRemove")
+internal actual external fun _scatterSetRemove(
     metadataFlat: IntArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
     hash: Int,
-    hash2: Int
-): Int {
-    val mask = capacity
-    var probeOffset = h1(hash) and mask
-    var probeIndex = 0
-
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m != 0L) {
-            val byteInGroup = m.countTrailingZeroBits() shr 3
-            val index = (probeOffset + byteInGroup) and mask
-            if (elements[index] == element) {
-                writeByte(metadataFlat, index, Deleted)
-                elements[index] = null
-                return index
-            }
-            m = m and (m - 1)
-        }
-        if (hasEmpty(g)) break
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and mask
-    }
-    return -1
-}
+    hash2: Int,
+): Int
 
 private fun loadGroup(metadata: IntArray, offset: Int): Long {
     val i = offset shr 3
@@ -277,7 +212,7 @@ internal actual fun _scatterMapRemove(
     return -1
 }
 
-@JsName("c_intsetFind")
+@JsName("_intsetFind")
 internal actual external fun _intsetFind(
     metadataFlat: IntArray,
     elements: IntArray,
@@ -287,7 +222,7 @@ internal actual external fun _intsetFind(
     hash2: Int,
 ): Int
 
-@JsName("c_intsetAdd")
+@JsName("_intsetAdd")
 internal actual external fun _intsetAdd(
     metadataFlat: IntArray,
     elements: IntArray,
@@ -299,7 +234,7 @@ internal actual external fun _intsetAdd(
     outSizeDelta: IntArray,
 ): Int
 
-@JsName("c_intsetRemove")
+@JsName("_intsetRemove")
 internal actual external fun _intsetRemove(
     metadataFlat: IntArray,
     elements: IntArray,
