@@ -2,6 +2,9 @@ package androidx.collection.internal
 
 import androidx.collection.h1
 import androidx.collection.h2
+import androidx.collection.isEmpty
+import androidx.collection.lowestBitSet
+import androidx.collection.maskEmptyOrDeleted
 
 private const val GroupWidth = 8
 private const val Empty = 0x80L
@@ -41,55 +44,42 @@ internal actual fun _scatterSetFind(
     return -1
 }
 
-internal actual fun _scatterSetAdd(
-    metadata: IntArray,
+internal actual fun _scatterSetFindSlot(
+    metadataFlat: IntArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
     hash: Int,
     hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-    outWasEmpty: IntArray
+    outFound: IntArray,
+    outIsEmpty: IntArray
 ): Int {
-    val mask = capacity
-    var probeOffset = h1(hash) and mask
-    var probeIndex = 0
-    var insertSlot = -1
-
-    while (true) {
-        val g = loadGroup(metadata, probeOffset)
-        var m = match(g, hash2)
-        while (m != 0L) {
-            val byteInGroup = m.countTrailingZeroBits() shr 3
-            val index = (probeOffset + byteInGroup) and mask
-            if (elements[index] == element) {
-                outCreated[0] = 0
-                outSizeDelta[0] = 0
-                outWasEmpty[0] = 0
-                return index
-            }
-            m = m and (m - 1)
-        }
-        val slot = firstEmptyOrDeleted(g, probeOffset, capacity)
-        if (slot >= 0) {
-            insertSlot = slot
-            break
-        }
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and mask
+    // First, try to find the element
+    val found = _scatterSetFind(metadataFlat, elements, capacity, element, hash, hash2)
+    if (found >= 0) {
+        outFound[0] = 1
+        outIsEmpty[0] = 0
+        return found
     }
 
-    val oldByte = readByte(metadata, insertSlot)
-    val isEmpty = oldByte == Empty
-
-    writeByte(metadata, insertSlot, hash2.toLong())
-    elements[insertSlot] = element
-
-    outCreated[0] = 1
-    outSizeDelta[0] = 1
-    outWasEmpty[0] = if (isEmpty) 1 else 0
-    return insertSlot
+    // Not found – find first empty or deleted slot using original Kotlin logic
+    val meta = IntAsLongArray(metadataFlat)
+    val probeMask = capacity
+    var probeOffset = h1(hash) and probeMask
+    var probeIndex = 0
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset)
+        val m = g.maskEmptyOrDeleted()
+        if (m != 0L) {
+            val slot = (probeOffset + m.lowestBitSet()) and probeMask
+            val isEmpty = isEmpty(meta, slot)
+            outFound[0] = 0
+            outIsEmpty[0] = if (isEmpty) 1 else 0
+            return slot
+        }
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and probeMask
+    }
 }
 
 internal actual fun _scatterSetRemove(
@@ -173,3 +163,4 @@ private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
 
     metadata[intIdx] = new
 }
+

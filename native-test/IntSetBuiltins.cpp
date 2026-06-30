@@ -255,7 +255,7 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     return JS_NewInt32(ctx, -1);
 }
 
-static JSValue c_scatterset_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue c_scatterset_find_slot(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     (void)this_val; (void)argc;
     int32_t* meta = get_int32_data(ctx, argv[0], "meta");
     if (!meta) return JS_EXCEPTION;
@@ -263,17 +263,14 @@ static JSValue c_scatterset_add(JSContext *ctx, JSValueConst this_val, int argc,
     JSValueConst element = argv[3];
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
-    int32_t* created = get_int32_data(ctx, argv[6], "created");
-    if (!created) return JS_EXCEPTION;
-    int32_t* sizeDelta = get_int32_data(ctx, argv[7], "sizeDelta");
-    if (!sizeDelta) return JS_EXCEPTION;
-    int32_t* wasEmpty = get_int32_data(ctx, argv[8], "wasEmpty");
-    if (!wasEmpty) return JS_EXCEPTION;
+    int32_t* outFound = get_int32_data(ctx, argv[6], "outFound");
+    if (!outFound) return JS_EXCEPTION;
+    int32_t* outIsEmpty = get_int32_data(ctx, argv[7], "outIsEmpty");
+    if (!outIsEmpty) return JS_EXCEPTION;
 
-    int32_t mask = capacity;                       // FIX: use capacity
+    int32_t mask = capacity;
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
     int32_t probeIndex = 0;
-    int32_t insertSlot = -1;
 
     while (1) {
         uint64_t g = load_group(meta, probeOffset, capacity);
@@ -289,31 +286,26 @@ static JSValue c_scatterset_add(JSContext *ctx, JSValueConst this_val, int argc,
             int eq = kotlin_equals(ctx, slotVal, element);
             JS_FreeValue(ctx, slotVal);
             if (eq) {
-                created[0] = 0;
-                sizeDelta[0] = 0;
-                wasEmpty[0] = 0;
+                outFound[0] = 1;
+                outIsEmpty[0] = 0;
                 return JS_NewInt32(ctx, index);
             }
             m &= m - 1;
         }
-        int32_t slot = first_empty_or_deleted(g, probeOffset, capacity);
-        if (slot >= 0) { insertSlot = slot; break; }
+        if (any_empty_or_deleted(g)) {
+            int32_t slot = first_empty_or_deleted(g, probeOffset, capacity);
+            int32_t byte = read_meta_byte(meta, slot);
+            int isEmpty = (byte == META_EMPTY);
+            outFound[0] = 0;
+            outIsEmpty[0] = isEmpty ? 1 : 0;
+            return JS_NewInt32(ctx, slot);
+        }
         probeIndex += 8;
         probeOffset = (probeOffset + probeIndex) & mask;
     }
-
-    int32_t oldByte = read_meta_byte(meta, insertSlot);
-    int isEmpty = (oldByte == META_EMPTY);
-
-    write_meta_byte(meta, insertSlot, hash2);
-    JSValue setVal = JS_DupValue(ctx, element);
-    JS_SetPropertyUint32(ctx, argv[1], (uint32_t)insertSlot, setVal);
-
-    created[0] = 1;
-    sizeDelta[0] = 1;
-    wasEmpty[0] = isEmpty ? 1 : 0;
-
-    return JS_NewInt32(ctx, insertSlot);
+    outFound[0] = 0;
+    outIsEmpty[0] = 0;
+    return JS_NewInt32(ctx, -1);
 }
 
 static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -374,8 +366,8 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   JSValue fn;
   fn = JS_NewCFunction(ctx, c_scatterset_find,                    "_scatterSetFind",                  6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFind", fn);
-  fn = JS_NewCFunction(ctx, c_scatterset_add,                     "_scatterSetAdd",                   9);
-  JS_SetPropertyStr(ctx, globalThis, "_scatterSetAdd", fn);
+  fn = JS_NewCFunction(ctx, c_scatterset_find_slot, "_scatterSetFindSlot", 8);
+  JS_SetPropertyStr(ctx, globalThis, "_scatterSetFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_remove,                 "_scatterSetRemove",                6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetRemove", fn);
   // Generic debug log helper for Kotlin/JS code to log to logcat.

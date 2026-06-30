@@ -32,7 +32,7 @@ import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
 import androidx.collection.internal.throwNoSuchElementExceptionForInline
 import androidx.collection.internal._scatterSetFind
-import androidx.collection.internal._scatterSetAdd
+import androidx.collection.internal._scatterSetFindSlot
 import androidx.collection.internal._scatterSetRemove
 import kotlin.contracts.contract
 import kotlin.jvm.JvmField
@@ -909,40 +909,27 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val probeMask = _capacity
-        var probeOffset = hash1 and probeMask
-        var probeIndex = 0
+        val outFound = IntArray(1)
+        val outIsEmpty = IntArray(1)
+        val index = _scatterSetFindSlot(metadata.data, elements, _capacity, element, hash, hash2, outFound, outIsEmpty)
 
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (elements[index] == element) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+        if (outFound[0] == 1) {
+            return index
         }
 
-        var index = findFirstAvailableSlot(hash1)
-        if (growthLimit == 0 && !isDeleted(metadata, index)) {
+        // Not found – we need to insert
+        var slot = index
+        if (growthLimit == 0 && outIsEmpty[0] == 0) { // slot was Deleted, not Empty
             adjustStorage()
-            index = findFirstAvailableSlot(hash1)
+            slot = findFirstAvailableSlot(hash1)
         }
 
         _size += 1
-        growthLimit -= if (isEmpty(metadata, index)) 1 else 0
-        writeMetadata(metadata, _capacity, index, hash2.toLong())
-
-        return index
+        // Determine if the final slot is Empty (it may have changed after adjustStorage)
+        val isEmptySlot = isEmpty(metadata, slot)
+        growthLimit -= if (isEmptySlot) 1 else 0
+        writeMetadata(metadata, _capacity, slot, hash2.toLong())
+        return slot
     }
 
     /**

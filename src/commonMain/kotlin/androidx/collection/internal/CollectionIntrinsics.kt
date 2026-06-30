@@ -23,16 +23,15 @@ internal expect fun _scatterSetFind(
     hash2: Int,
 ): Int
 
-internal expect fun _scatterSetAdd(
-    metadata: IntArray,
+internal expect fun _scatterSetFindSlot(
+    metadataFlat: IntArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
     hash: Int,
     hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-    outWasEmpty: IntArray
+    outFound: IntArray,
+    outIsEmpty: IntArray
 ): Int
 
 internal expect fun _scatterSetRemove(

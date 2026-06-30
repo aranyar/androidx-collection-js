@@ -17,17 +17,16 @@ internal actual external fun _scatterSetFind(
     hash2: Int,
 ): Int
 
-@JsName("_scatterSetAdd")
-internal actual external fun _scatterSetAdd(
-    metadata: IntArray,
+@JsName("_scatterSetFindSlot")
+internal actual external fun _scatterSetFindSlot(
+    metadataFlat: IntArray,
     elements: Array<Any?>,
     capacity: Int,
     element: Any?,
     hash: Int,
     hash2: Int,
-    outCreated: IntArray,
-    outSizeDelta: IntArray,
-    outWasEmpty: IntArray
+    outFound: IntArray,
+    outIsEmpty: IntArray
 ): Int
 
 @JsName("_scatterSetRemove")
