@@ -27,6 +27,10 @@
 package androidx.collection
 
 import androidx.collection.internal.EMPTY_OBJECTS
+import androidx.collection.internal.IntAsLongArray
+import androidx.collection.internal._scatterMapFind
+import androidx.collection.internal._scatterMapFindSlot
+import androidx.collection.internal._scatterMapRemove
 import androidx.collection.internal.requirePrecondition
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmOverloads
@@ -180,6 +184,14 @@ internal val EmptyGroup =
         -1L // 0xFFFFFFFFFFFFFFFFUL
     )
 
+@JvmField
+internal val EmptyGroupInt = IntAsLongArray(intArrayOf(
+    0x80808080.toInt(),          // low 32 bits of 0xFF80808080808080
+    0xFF808080.toInt(),          // high 32 bits of 0xFF80808080808080
+    -1,                  // low 32 bits of -1L (0xFFFFFFFF)
+    -1                   // high 32 bits of -1L (0xFFFFFFFF)
+))
+
 // Width of a group, in bytes. Since we can only use types as large as
 // Long we must fit our metadata bytes in a 64-bit word or smaller, which
 // means we can only store up to 8 slots in a group. Ideally we could use
@@ -253,8 +265,8 @@ public sealed class ScatterMap<K, V> {
     // NOTE: Our arrays are marked internal to implement inlined forEach{}
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` entries, including when
-    // the table is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
+    // the table is empty (see [EmptyGroupInt]).
+    @PublishedApi @JvmField internal var metadata: IntAsLongArray = EmptyGroupInt
 
     @PublishedApi @JvmField internal var keys: Array<Any?> = EMPTY_OBJECTS
 
@@ -553,32 +565,7 @@ public sealed class ScatterMap<K, V> {
      */
     internal inline fun findKeyIndex(key: K): Int {
         val hash = hash(key)
-        val hash2 = h2(hash)
-
-        val probeMask = _capacity
-        var probeOffset = h1(hash) and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (keys[index] == key) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
-        }
-
-        return -1
+        return _scatterMapFind(metadata.data, keys, _capacity, key, hash, h2(hash))
     }
 
     /**
@@ -658,11 +645,11 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
     private fun initializeMetadata(capacity: Int) {
         metadata =
             if (capacity == 0) {
-                EmptyGroup
+                EmptyGroupInt
             } else {
                 // Round up to the next multiple of 8 and find how many longs we need
                 val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                LongArray(size).apply {
+                IntAsLongArray(size).apply {
                     fill(AllEmpty)
                     writeRawMetadata(this, capacity, Sentinel)
                 }
@@ -815,11 +802,14 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
      * in the map, this function returns the value that was present before removal.
      */
     public fun remove(key: K): V? {
-        val index = findKeyIndex(key)
-        if (index >= 0) {
-            return removeValueAt(index)
-        }
-        return null
+        val hash = hash(key)
+        val index = _scatterMapFind(metadata.data, keys, _capacity, key, hash, h2(hash))
+        if (index < 0) return null
+        @Suppress("UNCHECKED_CAST")
+        val result = values[index] as V
+        _scatterMapRemove(metadata.data, keys, values, _capacity, key, hash, h2(hash))
+        _size -= 1
+        return result
     }
 
     /**
@@ -900,7 +890,7 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
     /** Removes all mappings from this map. */
     public fun clear() {
         _size = 0
-        if (metadata !== EmptyGroup) {
+        if (metadata !== EmptyGroupInt) {
             metadata.fill(AllEmpty)
             writeRawMetadata(metadata, _capacity, Sentinel)
         }
@@ -921,30 +911,13 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val probeMask = _capacity
-        var probeOffset = hash1 and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (keys[index] == key) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+        val emptySlot = intArrayOf(-1)
+        val slot = _scatterMapFindSlot(metadata.data, keys, _capacity, key, hash, hash2, emptySlot)
+        if (slot != -1) {
+            return slot
         }
 
-        var index = findFirstAvailableSlot(hash1)
+        var index = emptySlot[0]
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)
@@ -1156,6 +1129,22 @@ internal inline fun convertMetadataForCleanup(metadata: LongArray, capacity: Int
     metadata[lastIndex] = metadata[0]
 }
 
+internal inline fun convertMetadataForCleanup(metadata: IntAsLongArray, capacity: Int) {
+    val end = (capacity + 7) shr 3
+    for (i in 0 until end) {
+        // Converts Sentinel and Deleted to Empty, and Full to Deleted
+        val maskedGroup = metadata[i] and BitmaskMsb
+        metadata[i] = (maskedGroup.inv() + (maskedGroup ushr 7)) and BitmaskLsb.inv()
+    }
+
+    val lastIndex = metadata.lastIndex
+    // Restores the sentinel that we overwrote above
+    metadata[lastIndex - 1] =
+        (Sentinel shl 56) or (metadata[lastIndex - 1] and 0x00ffffff_ffffffffL)
+    // Copies the metadata into the clone area
+    metadata[lastIndex] = metadata[0]
+}
+
 /**
  * Returns the hash code of [k]. The hash spreads low bits to to minimize collisions in high 25-bits
  * that are used for probing.
@@ -1220,6 +1209,13 @@ internal inline fun readRawMetadata(data: LongArray, offset: Int): Long {
     return (data[offset shr 3] shr ((offset and 0x7) shl 3)) and 0xff
 }
 
+@PublishedApi
+internal inline fun readRawMetadata(data: IntAsLongArray, offset: Int): Long {
+    // Take the Long at index `offset / 8` and shift by `offset % 8`
+    // A longer explanation can be found in [group()].
+    return (data[offset shr 3] shr ((offset and 0x7) shl 3)) and 0xff
+}
+
 /**
  * Writes a single byte into the long array at the specified [offset] in *bytes* and copies it, if
  * necessary, into the cloned bytes section at the end of the array.
@@ -1243,6 +1239,13 @@ internal inline fun writeMetadata(data: LongArray, capacity: Int, offset: Int, v
     data[cloneIndex shr 3] = data[offset shr 3]
 }
 
+internal inline fun writeMetadata(data: IntAsLongArray, capacity: Int, offset: Int, value: Long) {
+    writeRawMetadata(data, offset, value)
+    val cloneIndex =
+        ((offset - ClonedMetadataCount) and capacity) + (ClonedMetadataCount and capacity)
+    data[cloneIndex shr 3] = data[offset shr 3]
+}
+
 /**
  * Writes a single byte into the long array at the specified [offset] in *bytes*.
  *
@@ -1258,13 +1261,28 @@ internal inline fun writeRawMetadata(data: LongArray, offset: Int, value: Long) 
     data[i] = (data[i] and (0xffL shl b).inv()) or (value shl b)
 }
 
+internal inline fun writeRawMetadata(data: IntAsLongArray, offset: Int, value: Long) {
+    val i = offset shr 3
+    val b = (offset and 0x7) shl 3
+    data[i] = (data[i] and (0xffL shl b).inv()) or (value shl b)
+}
+
 internal inline fun isEmpty(metadata: LongArray, index: Int) =
+    readRawMetadata(metadata, index) == Empty
+
+internal inline fun isEmpty(metadata: IntAsLongArray, index: Int) =
     readRawMetadata(metadata, index) == Empty
 
 internal inline fun isDeleted(metadata: LongArray, index: Int) =
     readRawMetadata(metadata, index) == Deleted
 
+internal inline fun isDeleted(metadata: IntAsLongArray, index: Int) =
+    readRawMetadata(metadata, index) == Deleted
+
 internal inline fun isFull(metadata: LongArray, index: Int): Boolean =
+    readRawMetadata(metadata, index) < 0x80L
+
+internal inline fun isFull(metadata: IntAsLongArray, index: Int): Boolean =
     readRawMetadata(metadata, index) < 0x80L
 
 @PublishedApi internal inline fun isFull(value: Long): Boolean = value < 0x80L
@@ -1369,6 +1387,12 @@ internal inline fun group(metadata: LongArray, offset: Int): Group {
     //
     // Note: since b is only ever 0, 8, 16, 24, 32, 48, 56, or 64, we don't
     // need to shift by 63, we could shift by only 5
+    val i = offset shr 3
+    val b = (offset and 0x7) shl 3
+    return (metadata[i] ushr b) or (metadata[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
+}
+
+internal inline fun group(metadata: IntAsLongArray, offset: Int): Group {
     val i = offset shr 3
     val b = (offset and 0x7) shl 3
     return (metadata[i] ushr b) or (metadata[i + 1] shl (64 - b) and (-(b.toLong()) shr 63))
