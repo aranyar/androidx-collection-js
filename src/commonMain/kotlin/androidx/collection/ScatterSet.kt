@@ -646,12 +646,13 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      *   before removal.
      */
     public fun remove(element: E): Boolean {
-        val index = findElementIndex(element)
-        val exists = index >= 0
-        if (exists) {
-            removeElementAt(index)
-        }
-        return exists
+        val hash = hash(element)
+        val hash2 = h2(hash)
+        val index = _scatterSetRemove(metadata.data, elements, _capacity, element, hash, hash2)
+        if (index < 0) return false
+        _size -= 1
+        elements[index] = null
+        return true
     }
 
     /**

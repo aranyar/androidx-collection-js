@@ -52,7 +52,7 @@ internal actual fun _scatterSetAdd(
     outSizeDelta: IntArray,
     outWasEmpty: IntArray
 ): Int {
-    val mask = capacity - 1
+    val mask = capacity
     var probeOffset = h1(hash) and mask
     var probeIndex = 0
     var insertSlot = -1
@@ -100,7 +100,7 @@ internal actual fun _scatterSetRemove(
     hash: Int,
     hash2: Int
 ): Int {
-    val mask = capacity - 1
+    val mask = capacity
     var probeOffset = h1(hash) and mask
     var probeIndex = 0
 
