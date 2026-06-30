@@ -81,10 +81,10 @@ kotlin {
         val jvmTest by getting
         val jsMain by getting
         val jsTest by getting
-        val appleMain by getting
         val nativeMain by getting
         val linuxMain by getting
         val mingwMain by getting
+        val appleMain by getting
         val iosMain by getting
         val macosMain by getting
         val tvosMain by getting

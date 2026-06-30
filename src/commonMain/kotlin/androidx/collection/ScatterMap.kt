@@ -27,9 +27,6 @@
 package androidx.collection
 
 import androidx.collection.internal.EMPTY_OBJECTS
-import androidx.collection.internal._scatterMapFind
-import androidx.collection.internal._scatterMapFindSlot
-import androidx.collection.internal._scatterMapRemove
 import androidx.collection.internal.requirePrecondition
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmOverloads
@@ -556,7 +553,32 @@ public sealed class ScatterMap<K, V> {
      */
     internal inline fun findKeyIndex(key: K): Int {
         val hash = hash(key)
-        return _scatterMapFind(metadata, keys, _capacity, key, hash, h2(hash))
+        val hash2 = h2(hash)
+
+        val probeMask = _capacity
+        var probeOffset = h1(hash) and probeMask
+        var probeIndex = 0
+
+        while (true) {
+            val g = group(metadata, probeOffset)
+            var m = g.match(hash2)
+            while (m.hasNext()) {
+                val index = (probeOffset + m.get()) and probeMask
+                if (keys[index] == key) {
+                    return index
+                }
+                m = m.next()
+            }
+
+            if (g.maskEmpty() != 0L) {
+                break
+            }
+
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
+
+        return -1
     }
 
     /**
@@ -899,13 +921,30 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val emptySlot = intArrayOf(-1)
-        val slot = _scatterMapFindSlot(metadata, keys, _capacity, key, hash, hash2, emptySlot)
-        if (slot != -1) {
-            return slot
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
+
+        while (true) {
+            val g = group(metadata, probeOffset)
+            var m = g.match(hash2)
+            while (m.hasNext()) {
+                val index = (probeOffset + m.get()) and probeMask
+                if (keys[index] == key) {
+                    return index
+                }
+                m = m.next()
+            }
+
+            if (g.maskEmpty() != 0L) {
+                break
+            }
+
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
         }
 
-        var index = emptySlot[0]
+        var index = findFirstAvailableSlot(hash1)
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)

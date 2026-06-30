@@ -30,9 +30,6 @@ import androidx.annotation.IntRange
 import androidx.collection.internal.EMPTY_OBJECTS
 import androidx.collection.internal.requirePrecondition
 import androidx.collection.internal.throwNoSuchElementExceptionForInline
-import androidx.collection.internal._scatterSetFind
-import androidx.collection.internal._scatterSetFindSlot
-import androidx.collection.internal._scatterSetRemove
 import kotlin.contracts.contract
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmOverloads
@@ -120,7 +117,7 @@ public sealed class ScatterSet<E> {
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` elements, including when
     // the set is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata = EmptyGroup
+    @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
 
     @PublishedApi @JvmField internal var elements: Array<Any?> = EMPTY_OBJECTS
 
@@ -392,14 +389,30 @@ public sealed class ScatterSet<E> {
     internal inline fun findElementIndex(element: E): Int {
         val hash = hash(element)
         val hash2 = h2(hash)
-        return _scatterSetFind(
-            metadata,
-            elements,
-            _capacity,
-            element,
-            hash,
-            hash2
-        )
+
+        val probeMask = _capacity
+        var probeOffset = h1(hash) and probeMask
+        var probeIndex = 0
+        while (true) {
+            val g = group(metadata, probeOffset)
+            var m = g.match(hash2)
+            while (m.hasNext()) {
+                val index = (probeOffset + m.get()) and probeMask
+                if (elements[index] == element) {
+                    return index
+                }
+                m = m.next()
+            }
+
+            if (g.maskEmpty() != 0L) {
+                break
+            }
+
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
+        }
+
+        return -1
     }
 
     /**
@@ -645,13 +658,12 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
      *   before removal.
      */
     public fun remove(element: E): Boolean {
-        val hash = hash(element)
-        val hash2 = h2(hash)
-        val index = _scatterSetRemove(metadata, elements, _capacity, element, hash, hash2)
-        if (index < 0) return false
-        _size -= 1
-        elements[index] = null
-        return true
+        val index = findElementIndex(element)
+        val exists = index >= 0
+        if (exists) {
+            removeElementAt(index)
+        }
+        return exists
     }
 
     /**
@@ -908,15 +920,30 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val outFound = intArrayOf(0)
+        val probeMask = _capacity
+        var probeOffset = hash1 and probeMask
+        var probeIndex = 0
 
-        val emptySlot = intArrayOf(-1)
-        val slot = _scatterSetFindSlot(metadata, elements, capacity, element, hash, hash2, emptySlot)
-        if (slot != -1) {
-            return slot
+        while (true) {
+            val g = group(metadata, probeOffset)
+            var m = g.match(hash2)
+            while (m.hasNext()) {
+                val index = (probeOffset + m.get()) and probeMask
+                if (elements[index] == element) {
+                    return index
+                }
+                m = m.next()
+            }
+
+            if (g.maskEmpty() != 0L) {
+                break
+            }
+
+            probeIndex += GroupWidth
+            probeOffset = (probeOffset + probeIndex) and probeMask
         }
 
-        var index = emptySlot[0]
+        var index = findFirstAvailableSlot(hash1)
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)
