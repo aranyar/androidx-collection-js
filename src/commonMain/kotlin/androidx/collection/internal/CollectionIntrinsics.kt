@@ -41,3 +41,32 @@ internal expect fun _scatterSetRemove(
     hash: Int,
     hash2: Int,
 ): Int
+
+internal expect fun _scatterMapFindSlot(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+    emptySlot: IntArray,
+): Int
+
+internal expect fun _scatterMapFind(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+): Int
+
+internal expect fun _scatterMapRemove(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    values: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+): Int

@@ -28,6 +28,9 @@ package androidx.collection
 
 import androidx.collection.internal.EMPTY_OBJECTS
 import androidx.collection.internal.IntAsLongArray
+import androidx.collection.internal._scatterMapFind
+import androidx.collection.internal._scatterMapFindSlot
+import androidx.collection.internal._scatterMapRemove
 import androidx.collection.internal.requirePrecondition
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmOverloads
@@ -262,8 +265,8 @@ public sealed class ScatterMap<K, V> {
     // NOTE: Our arrays are marked internal to implement inlined forEach{}
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` entries, including when
-    // the table is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
+    // the table is empty (see [EmptyGroupInt]).
+    @PublishedApi @JvmField internal var metadata: IntAsLongArray = EmptyGroupInt
 
     @PublishedApi @JvmField internal var keys: Array<Any?> = EMPTY_OBJECTS
 
@@ -562,32 +565,7 @@ public sealed class ScatterMap<K, V> {
      */
     internal inline fun findKeyIndex(key: K): Int {
         val hash = hash(key)
-        val hash2 = h2(hash)
-
-        val probeMask = _capacity
-        var probeOffset = h1(hash) and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (keys[index] == key) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
-        }
-
-        return -1
+        return _scatterMapFind(metadata.data, keys, _capacity, key, hash, h2(hash))
     }
 
     /**
@@ -667,11 +645,11 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
     private fun initializeMetadata(capacity: Int) {
         metadata =
             if (capacity == 0) {
-                EmptyGroup
+                EmptyGroupInt
             } else {
                 // Round up to the next multiple of 8 and find how many longs we need
                 val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                LongArray(size).apply {
+                IntAsLongArray(size).apply {
                     fill(AllEmpty)
                     writeRawMetadata(this, capacity, Sentinel)
                 }
@@ -824,11 +802,14 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
      * in the map, this function returns the value that was present before removal.
      */
     public fun remove(key: K): V? {
-        val index = findKeyIndex(key)
-        if (index >= 0) {
-            return removeValueAt(index)
-        }
-        return null
+        val hash = hash(key)
+        val index = _scatterMapFind(metadata.data, keys, _capacity, key, hash, h2(hash))
+        if (index < 0) return null
+        @Suppress("UNCHECKED_CAST")
+        val result = values[index] as V
+        _scatterMapRemove(metadata.data, keys, values, _capacity, key, hash, h2(hash))
+        _size -= 1
+        return result
     }
 
     /**
@@ -909,7 +890,7 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
     /** Removes all mappings from this map. */
     public fun clear() {
         _size = 0
-        if (metadata !== EmptyGroup) {
+        if (metadata !== EmptyGroupInt) {
             metadata.fill(AllEmpty)
             writeRawMetadata(metadata, _capacity, Sentinel)
         }
@@ -930,30 +911,13 @@ public class MutableScatterMap<K, V>(initialCapacity: Int = DefaultScatterCapaci
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val probeMask = _capacity
-        var probeOffset = hash1 and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (keys[index] == key) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+        val emptySlot = intArrayOf(-1)
+        val slot = _scatterMapFindSlot(metadata.data, keys, _capacity, key, hash, hash2, emptySlot)
+        if (slot != -1) {
+            return slot
         }
 
-        var index = findFirstAvailableSlot(hash1)
+        var index = emptySlot[0]
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)

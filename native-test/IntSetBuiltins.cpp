@@ -359,6 +359,130 @@ static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int ar
     }
     return JS_NewInt32(ctx, -1);
 }
+
+static JSValue c_scattermap_find_slot(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    JSValueConst key = argv[3];
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+    int32_t* emptySlot = get_int32_data(ctx, argv[6], "emptySlot");
+    if (!emptySlot) return JS_EXCEPTION;
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int eq = kotlin_equals(ctx, slotVal, key);
+            JS_FreeValue(ctx, slotVal);
+            if (eq) {
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) {
+            break;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    emptySlot[0] = find_first_available_slot(meta, capacity, ((uint32_t)hash >> 7) & mask);
+    return JS_NewInt32(ctx, -1);
+}
+
+static JSValue c_scattermap_find(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    JSValueConst key = argv[3];
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int eq = kotlin_equals(ctx, slotVal, key);
+            JS_FreeValue(ctx, slotVal);
+            if (eq) {
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty_or_deleted(g)) {
+            break;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    return JS_NewInt32(ctx, -1);
+}
+
+static JSValue c_scattermap_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    JSValueConst key = argv[3];
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int eq = kotlin_equals(ctx, slotVal, key);
+            JS_FreeValue(ctx, slotVal);
+            if (eq) {
+                write_meta_byte(meta, index, META_DELETED);
+                JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NULL);
+                JS_SetPropertyUint32(ctx, argv[2], (uint32_t)index, JS_NULL);
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) break;
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    return JS_NewInt32(ctx, -1);
+}
 // Generic JS-callable log function. Allows Kotlin/JS code to send debug messages that
 // appear in Android logcat (and stderr on other platforms).
 static JSValue c_dbg_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -381,6 +505,12 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_remove,                 "_scatterSetRemove",                6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetRemove", fn);
+  fn = JS_NewCFunction(ctx, c_scattermap_find_slot, "_scatterMapFindSlot", 7);
+  JS_SetPropertyStr(ctx, globalThis, "_scatterMapFindSlot", fn);
+  fn = JS_NewCFunction(ctx, c_scattermap_find, "_scatterMapFind", 6);
+  JS_SetPropertyStr(ctx, globalThis, "_scatterMapFind", fn);
+  fn = JS_NewCFunction(ctx, c_scattermap_remove, "_scatterMapRemove", 7);
+  JS_SetPropertyStr(ctx, globalThis, "_scatterMapRemove", fn);
   // Generic debug log helper for Kotlin/JS code to log to logcat.
   fn = JS_NewCFunction(ctx, c_dbg_log,                           "_dbg",                              1);
   JS_SetPropertyStr(ctx, globalThis, "_dbg", fn);

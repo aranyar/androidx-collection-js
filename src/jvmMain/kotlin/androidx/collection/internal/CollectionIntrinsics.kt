@@ -183,3 +183,108 @@ private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
     metadata[intIdx] = new
 }
 
+internal actual fun _scatterMapFindSlot(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+    emptySlot: IntArray,
+): Int {
+    val probeMask = capacity
+    var probeOffset = h1(hash) and probeMask
+    var probeIndex = 0
+
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset)
+        var m = match(g, hash2)
+        while (m.hasNext()) {
+            val index = (probeOffset + m.get()) and probeMask
+            if (keys[index] == key) {
+                return index
+            }
+            m = m.next()
+        }
+
+        if (g.maskEmpty() != 0L) {
+            break
+        }
+
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and probeMask
+    }
+    emptySlot[0] = findFirstAvailableSlot(metadataFlat, capacity, h1(hash))
+    return -1
+}
+
+internal actual fun _scatterMapFind(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int
+): Int {
+    val probeMask = capacity
+    var probeOffset = h1(hash) and probeMask
+    var probeIndex = 0
+
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset)
+        var m = match(g, hash2)
+        while (m.hasNext()) {
+            val index = (probeOffset + m.get()) and probeMask
+            if (keys[index] == key) {
+                return index
+            }
+            m = m.next()
+        }
+
+        if (g.maskEmpty() != 0L) {
+            break
+        }
+
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and probeMask
+    }
+    return -1
+}
+
+internal actual fun _scatterMapRemove(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    values: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int
+): Int {
+    val probeMask = capacity
+    var probeOffset = h1(hash) and probeMask
+    var probeIndex = 0
+
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset)
+        var m = match(g, hash2)
+        while (m.hasNext()) {
+            val index = (probeOffset + m.get()) and probeMask
+            if (keys[index] == key) {
+                writeByte(metadataFlat, index, Deleted)
+                keys[index] = null
+                values[index] = null
+                return index
+            }
+            m = m.next()
+        }
+
+        if (g.maskEmpty() != 0L) {
+            break
+        }
+
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and probeMask
+    }
+    return -1
+}
+

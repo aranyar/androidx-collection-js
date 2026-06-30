@@ -37,3 +37,35 @@ internal actual external fun _scatterSetRemove(
     hash: Int,
     hash2: Int,
 ): Int
+
+@JsName("_scatterMapFindSlot")
+internal actual external fun _scatterMapFindSlot(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+    emptySlot: IntArray,
+): Int
+
+@JsName("_scatterMapFind")
+internal actual external fun _scatterMapFind(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+): Int
+
+@JsName("_scatterMapRemove")
+internal actual external fun _scatterMapRemove(
+    metadataFlat: IntArray,
+    keys: Array<Any?>,
+    values: Array<Any?>,
+    capacity: Int,
+    key: Any?,
+    hash: Int,
+    hash2: Int,
+): Int
