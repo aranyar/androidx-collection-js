@@ -107,7 +107,8 @@ private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
     metadata[intIdx] = new
 }
 
-internal actual fun _scatterMapFindSlot(
+@JsName("_scatterMapFindSlot")
+internal actual external fun _scatterMapFindSlot(
     metadataFlat: IntArray,
     keys: Array<Any?>,
     capacity: Int,
@@ -115,105 +116,28 @@ internal actual fun _scatterMapFindSlot(
     hash: Int,
     hash2: Int,
     emptySlot: IntArray,
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
+): Int
 
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    emptySlot[0] = findFirstAvailableSlot(metadataFlat, capacity, h1(hash))
-    return -1
-}
-
-internal actual fun _scatterMapFind(
+@JsName("_scatterMapFind")
+internal actual external fun _scatterMapFind(
     metadataFlat: IntArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
     hash: Int,
-    hash2: Int
-): Int {
-    println("JS _scatterMapFind ENTRY: cap=$capacity key=$key hash=$hash hash2=$hash2")
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
+    hash2: Int,
+): Int
 
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                println("JS _scatterMapFind FOUND index=$index")
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    println("JS _scatterMapFind NOT_FOUND")
-    return -1
-}
-
-internal actual fun _scatterMapRemove(
+@JsName("_scatterMapRemove")
+internal actual external fun _scatterMapRemove(
     metadataFlat: IntArray,
     keys: Array<Any?>,
     values: Array<Any?>,
     capacity: Int,
     key: Any?,
     hash: Int,
-    hash2: Int
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
-
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                writeByte(metadataFlat, index, Deleted)
-                keys[index] = null
-                values[index] = null
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    return -1
-}
+    hash2: Int,
+): Int
 
 @JsName("_intsetFind")
 internal actual external fun _intsetFind(
@@ -247,40 +171,18 @@ internal actual external fun _intsetRemove(
     hash2: Int,
 ): Int
 
-internal actual fun _intObjectMapFind(
+@JsName("_intObjectMapFind")
+internal actual external fun _intObjectMapFind(
     metadataFlat: IntArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
     hash: Int,
-    hash2: Int
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
+    hash2: Int,
+): Int
 
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    return -1
-}
-
-internal actual fun _intObjectMapPut(
+@JsName("_intObjectMapPut")
+internal actual external fun _intObjectMapPut(
     metadataFlat: IntArray,
     keys: IntArray,
     capacity: Int,
@@ -288,78 +190,22 @@ internal actual fun _intObjectMapPut(
     hash: Int,
     hash2: Int,
     outCreated: IntArray,
-    outSizeDelta: IntArray
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
+    outSizeDelta: IntArray,
+): Int
 
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                outCreated[0] = 0
-                outSizeDelta[0] = 0
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            val emptyIndex = (probeOffset + m.get()) and probeMask
-            writeByte(metadataFlat, emptyIndex, hash2.toLong())
-            keys[emptyIndex] = key
-            outCreated[0] = 1
-            outSizeDelta[0] = 1
-            return emptyIndex
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-}
-
-internal actual fun _intObjectMapRemove(
+@JsName("_intObjectMapRemove")
+internal actual external fun _intObjectMapRemove(
     metadataFlat: IntArray,
     keys: IntArray,
     capacity: Int,
     key: Int,
     hash: Int,
-    hash2: Int
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
+    hash2: Int,
+): Int
 
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                writeByte(metadataFlat, index, Deleted)
-                keys[index] = 0
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    return -1
-}
-
-internal actual fun _intObjectMapFindAvailableSlot(
+@JsName("_intObjectMapFindAvailableSlot")
+internal actual external fun _intObjectMapFindAvailableSlot(
     metadataFlat: IntArray,
     capacity: Int,
-    hash1: Int
-): Int {
-    return findFirstAvailableSlot(metadataFlat, capacity, hash1)
-}
+    hash1: Int,
+): Int

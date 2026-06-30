@@ -14,6 +14,7 @@ fun main() {
     totalPassed += runTests(IntObjectMapTest(), "IntObjectMap")
     totalPassed += runTests(ScatterSetTest(), "ScatterSet")
     totalPassed += runTests(ScatterMapTest(), "ScatterMap")
+    totalPassed += runTests(CliveTest(), "Clive")
 
     println("\n================================")
     println("Total: $totalPassed passed, $totalFailed failed")
