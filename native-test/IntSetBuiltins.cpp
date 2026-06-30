@@ -92,11 +92,11 @@ static int32_t* get_int32_data(JSContext *ctx, JSValueConst val, const char* arg
 }
 
 static inline int32_t read_meta_byte(const int32_t* flat, int32_t offset) {
-  return flat[offset] & 0xFF;
+  return (int32_t)((uint8_t*)flat)[offset];
 }
 
 static inline void write_meta_byte(int32_t* flat, int32_t offset, int32_t byte) {
-  flat[offset] = byte & 0xFF;
+  ((uint8_t*)flat)[offset] = (uint8_t) (byte & 0xFF);
 }
 
 static inline uint64_t load_group(const int32_t* flat, int32_t offset, int32_t capacity) {
