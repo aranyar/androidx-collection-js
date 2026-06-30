@@ -257,6 +257,8 @@ static JSValue c_scatterset_find(JSContext *ctx, JSValueConst this_val, int argc
     return JS_NewInt32(ctx, -1);
 }
 
+static int32_t find_first_available_slot(const int32_t* meta, int32_t capacity, int32_t hash1);
+
 static JSValue c_scatterset_find_slot(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     (void)this_val; (void)argc;
     int32_t* meta = get_int32_data(ctx, argv[0], "meta");
@@ -265,10 +267,8 @@ static JSValue c_scatterset_find_slot(JSContext *ctx, JSValueConst this_val, int
     JSValueConst element = argv[3];
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
     int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
-    int32_t* outFound = get_int32_data(ctx, argv[6], "outFound");
-    if (!outFound) return JS_EXCEPTION;
-    int32_t* outIsEmpty = get_int32_data(ctx, argv[7], "outIsEmpty");
-    if (!outIsEmpty) return JS_EXCEPTION;
+    int32_t* emptySlot = get_int32_data(ctx, argv[6], "emptySlot");
+    if (!emptySlot) return JS_EXCEPTION;
 
     int32_t mask = capacity;
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
@@ -288,26 +288,35 @@ static JSValue c_scatterset_find_slot(JSContext *ctx, JSValueConst this_val, int
             int eq = kotlin_equals(ctx, slotVal, element);
             JS_FreeValue(ctx, slotVal);
             if (eq) {
-                outFound[0] = 1;
-                outIsEmpty[0] = 0;
                 return JS_NewInt32(ctx, index);
             }
             m &= m - 1;
         }
-        if (any_empty_or_deleted(g)) {
-            int32_t slot = first_empty_or_deleted(g, probeOffset, capacity);
-            int32_t byte = read_meta_byte(meta, slot);
-            int isEmpty = (byte == META_EMPTY);
-            outFound[0] = 0;
-            outIsEmpty[0] = isEmpty ? 1 : 0;
-            return JS_NewInt32(ctx, slot);
+        if (any_empty(g)) {
+            break;
         }
         probeIndex += 8;
         probeOffset = (probeOffset + probeIndex) & mask;
     }
-    outFound[0] = 0;
-    outIsEmpty[0] = 0;
+    emptySlot[0] = find_first_available_slot(meta, capacity, ((uint32_t)hash >> 7) & mask);
     return JS_NewInt32(ctx, -1);
+}
+
+static int32_t find_first_available_slot(const int32_t* meta, int32_t capacity, int32_t hash1) {
+    int32_t mask = capacity;
+    int32_t probeOffset = hash1 & mask;
+    int32_t probeIndex = 0;
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = mask_empty_or_deleted(g);
+        if (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            return (probeOffset + byteInGroup) & mask;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
 }
 
 static JSValue c_scatterset_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -368,7 +377,7 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   JSValue fn;
   fn = JS_NewCFunction(ctx, c_scatterset_find,                    "_scatterSetFind",                  6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFind", fn);
-  fn = JS_NewCFunction(ctx, c_scatterset_find_slot, "_scatterSetFindSlot", 6);
+  fn = JS_NewCFunction(ctx, c_scatterset_find_slot, "_scatterSetFindSlot", 7);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_remove,                 "_scatterSetRemove",                6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetRemove", fn);
