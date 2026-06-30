@@ -909,27 +909,25 @@ public class MutableScatterSet<E>(initialCapacity: Int = DefaultScatterCapacity)
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val outFound = IntArray(1)
-        val outIsEmpty = IntArray(1)
-        val index = _scatterSetFindSlot(metadata.data, elements, _capacity, element, hash, hash2, outFound, outIsEmpty)
+        val outFound = intArrayOf(0)
 
-        if (outFound[0] == 1) {
-            return index
+        val emptySlot = intArrayOf(-1)
+        val slot = _scatterSetFindSlot(metadata.data, elements, capacity, element, hash, hash2, emptySlot)
+        if (slot != -1) {
+            return slot
         }
 
-        // Not found – we need to insert
-        var slot = index
-        if (growthLimit == 0 && outIsEmpty[0] == 0) { // slot was Deleted, not Empty
+        var index = emptySlot[0]
+        if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
-            slot = findFirstAvailableSlot(hash1)
+            index = findFirstAvailableSlot(hash1)
         }
 
         _size += 1
-        // Determine if the final slot is Empty (it may have changed after adjustStorage)
-        val isEmptySlot = isEmpty(metadata, slot)
-        growthLimit -= if (isEmptySlot) 1 else 0
-        writeMetadata(metadata, _capacity, slot, hash2.toLong())
-        return slot
+        growthLimit -= if (isEmpty(metadata, index)) 1 else 0
+        writeMetadata(metadata, _capacity, index, hash2.toLong())
+
+        return index
     }
 
     /**

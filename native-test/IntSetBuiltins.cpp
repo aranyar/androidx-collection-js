@@ -368,7 +368,7 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   JSValue fn;
   fn = JS_NewCFunction(ctx, c_scatterset_find,                    "_scatterSetFind",                  6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFind", fn);
-  fn = JS_NewCFunction(ctx, c_scatterset_find_slot, "_scatterSetFindSlot", 8);
+  fn = JS_NewCFunction(ctx, c_scatterset_find_slot, "_scatterSetFindSlot", 6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_remove,                 "_scatterSetRemove",                6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetRemove", fn);

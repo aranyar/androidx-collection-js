@@ -1,10 +1,17 @@
 package androidx.collection.internal
 
+import androidx.collection.GroupWidth
+import androidx.collection.get
+import androidx.collection.group
 import androidx.collection.h1
 import androidx.collection.h2
+import androidx.collection.hasNext
 import androidx.collection.isEmpty
 import androidx.collection.lowestBitSet
+import androidx.collection.maskEmpty
 import androidx.collection.maskEmptyOrDeleted
+import androidx.collection.match
+import androidx.collection.next
 
 private const val GroupWidth = 8
 private const val Empty = 0x80L
@@ -51,31 +58,43 @@ internal actual fun _scatterSetFindSlot(
     element: Any?,
     hash: Int,
     hash2: Int,
-    outFound: IntArray,
-    outIsEmpty: IntArray
+    emptySlot: IntArray,
 ): Int {
-    // First, try to find the element
-    val found = _scatterSetFind(metadataFlat, elements, capacity, element, hash, hash2)
-    if (found >= 0) {
-        outFound[0] = 1
-        outIsEmpty[0] = 0
-        return found
-    }
-
-    // Not found – find first empty or deleted slot using original Kotlin logic
-    val meta = IntAsLongArray(metadataFlat)
     val probeMask = capacity
     var probeOffset = h1(hash) and probeMask
+    var probeIndex = 0
+
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset)
+        var m = match(g, hash2)
+        while (m.hasNext()) {
+            val index = (probeOffset + m.get()) and probeMask
+            if (elements[index] == element) {
+                return index
+            }
+            m = m.next()
+        }
+
+        if (g.maskEmpty() != 0L) {
+            break
+        }
+
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and probeMask
+    }
+    emptySlot[0] = findFirstAvailableSlot(metadataFlat, capacity, h1(hash))
+    return -1
+}
+
+private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1: Int): Int {
+    val probeMask = capacity
+    var probeOffset = hash1 and probeMask
     var probeIndex = 0
     while (true) {
         val g = loadGroup(metadataFlat, probeOffset)
         val m = g.maskEmptyOrDeleted()
         if (m != 0L) {
-            val slot = (probeOffset + m.lowestBitSet()) and probeMask
-            val isEmpty = isEmpty(meta, slot)
-            outFound[0] = 0
-            outIsEmpty[0] = if (isEmpty) 1 else 0
-            return slot
+            return (probeOffset + m.lowestBitSet()) and probeMask
         }
         probeIndex += GroupWidth
         probeOffset = (probeOffset + probeIndex) and probeMask

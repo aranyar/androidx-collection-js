@@ -30,8 +30,7 @@ internal expect fun _scatterSetFindSlot(
     element: Any?,
     hash: Int,
     hash2: Int,
-    outFound: IntArray,
-    outIsEmpty: IntArray
+    emptySlot: IntArray,
 ): Int
 
 internal expect fun _scatterSetRemove(

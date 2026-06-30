@@ -25,8 +25,7 @@ internal actual external fun _scatterSetFindSlot(
     element: Any?,
     hash: Int,
     hash2: Int,
-    outFound: IntArray,
-    outIsEmpty: IntArray
+    emptySlot: IntArray,
 ): Int
 
 @JsName("_scatterSetRemove")
