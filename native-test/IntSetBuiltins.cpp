@@ -407,6 +407,7 @@ static JSValue c_scattermap_find(JSContext *ctx, JSValueConst this_val, int argc
     (void)this_val; (void)argc;
     int32_t* meta = get_int32_data(ctx, argv[0], "meta");
     if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=keys, argv[2]=capacity, argv[3]=key, argv[4]=hash, argv[5]=hash2
     int32_t capacity = JS_VALUE_GET_INT(argv[2]);
     JSValueConst key = argv[3];
     int32_t hash = JS_VALUE_GET_INT(argv[4]);
@@ -447,10 +448,11 @@ static JSValue c_scattermap_remove(JSContext *ctx, JSValueConst this_val, int ar
     (void)this_val; (void)argc;
     int32_t* meta = get_int32_data(ctx, argv[0], "meta");
     if (!meta) return JS_EXCEPTION;
-    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
-    JSValueConst key = argv[3];
-    int32_t hash = JS_VALUE_GET_INT(argv[4]);
-    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+    // argv[1]=keys, argv[2]=values, argv[3]=capacity, argv[4]=key, argv[5]=hash, argv[6]=hash2
+    int32_t capacity = JS_VALUE_GET_INT(argv[3]);
+    JSValueConst key = argv[4];
+    int32_t hash = JS_VALUE_GET_INT(argv[5]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[6]);
 
     int32_t mask = capacity;
     int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
