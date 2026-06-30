@@ -167,6 +167,147 @@ static inline int32_t first_empty_or_deleted(uint64_t g, int32_t probeOffset, in
 }
 
 // ============================================================================
+// IntSet intrinsics. Elements are Int32 values stored in IntArray. We read
+// and compare them directly as int32_t.
+// ============================================================================
+
+static JSValue c_intset_find(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=elements, argv[2]=capacity, argv[3]=element, argv[4]=hash, argv[5]=hash2
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t element = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotInt = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotInt == element) {
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty_or_deleted(g)) {
+            break;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    return JS_NewInt32(ctx, -1);
+}
+
+static JSValue c_intset_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=elements, argv[2]=capacity, argv[3]=element, argv[4]=hash, argv[5]=hash2,
+    // argv[6]=outCreated, argv[7]=outSizeDelta
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t element = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+    int32_t* outCreated = get_int32_data(ctx, argv[6], "outCreated");
+    if (!outCreated) return JS_EXCEPTION;
+    int32_t* outSizeDelta = get_int32_data(ctx, argv[7], "outSizeDelta");
+    if (!outSizeDelta) return JS_EXCEPTION;
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotInt = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotInt == element) {
+                outCreated[0] = 0;
+                outSizeDelta[0] = 0;
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) {
+            int32_t bitIdx = __builtin_ctzll(mask_empty(g));
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            write_meta_byte(meta, index, hash2);
+            JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NewInt32(ctx, element));
+            outCreated[0] = 1;
+            outSizeDelta[0] = 1;
+            return JS_NewInt32(ctx, index);
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+}
+
+static JSValue c_intset_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=elements, argv[2]=capacity, argv[3]=element, argv[4]=hash, argv[5]=hash2
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t element = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotInt = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotInt == element) {
+                write_meta_byte(meta, index, META_DELETED);
+                JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NULL);
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) break;
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    return JS_NewInt32(ctx, -1);
+}
+
+// ============================================================================
 // ScatterSet intrinsics. Same metadata layout as IntSet, but `elements` holds
 // JS values (Any?) instead of Int. We compare with JS_StrictEq (===) which matches
 // Kotlin's `==` on Any?.
@@ -485,6 +626,171 @@ static JSValue c_scattermap_remove(JSContext *ctx, JSValueConst this_val, int ar
     }
     return JS_NewInt32(ctx, -1);
 }
+
+// ============================================================================
+// IntObjectMap intrinsics. Keys are Int32. For keys we compare directly as int32_t.
+// ============================================================================
+
+static JSValue c_int_object_map_find(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=keys, argv[2]=capacity, argv[3]=key, argv[4]=hash, argv[5]=hash2
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t key = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotKey = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotKey == key) {
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty_or_deleted(g)) {
+            break;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    return JS_NewInt32(ctx, -1);
+}
+
+static JSValue c_int_object_map_put(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=keys, argv[2]=capacity, argv[3]=key, argv[4]=hash, argv[5]=hash2,
+    // argv[6]=outCreated, argv[7]=outSizeDelta
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t key = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+    int32_t* outCreated = get_int32_data(ctx, argv[6], "outCreated");
+    if (!outCreated) return JS_EXCEPTION;
+    int32_t* outSizeDelta = get_int32_data(ctx, argv[7], "outSizeDelta");
+    if (!outSizeDelta) return JS_EXCEPTION;
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotKey = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotKey == key) {
+                outCreated[0] = 0;
+                outSizeDelta[0] = 0;
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) {
+            int32_t bitIdx = __builtin_ctzll(mask_empty(g));
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            write_meta_byte(meta, index, hash2);
+            JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NewInt32(ctx, key));
+            outCreated[0] = 1;
+            outSizeDelta[0] = 1;
+            return JS_NewInt32(ctx, index);
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+}
+
+static JSValue c_int_object_map_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=keys, argv[2]=capacity, argv[3]=key, argv[4]=hash, argv[5]=hash2
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t key = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotKey = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotKey == key) {
+                write_meta_byte(meta, index, META_DELETED);
+                JS_SetPropertyUint32(ctx, argv[1], (uint32_t)index, JS_NULL);
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) break;
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    return JS_NewInt32(ctx, -1);
+}
+
+static JSValue c_int_object_map_find_available_slot(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=capacity, argv[2]=hash1
+    int32_t capacity = JS_VALUE_GET_INT(argv[1]);
+    int32_t hash1 = JS_VALUE_GET_INT(argv[2]);
+
+    int32_t mask = capacity;
+    int32_t probeOffset = hash1 & mask;
+    int32_t probeIndex = 0;
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = mask_empty_or_deleted(g);
+        if (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            return JS_NewInt32(ctx, (probeOffset + byteInGroup) & mask);
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+}
+
 // Generic JS-callable log function. Allows Kotlin/JS code to send debug messages that
 // appear in Android logcat (and stderr on other platforms).
 static JSValue c_dbg_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -501,12 +807,30 @@ static JSValue c_dbg_log(JSContext *ctx, JSValueConst this_val, int argc, JSValu
 extern "C" __attribute__((visibility("default"))) void js_intset_register_builtins(JSContext *ctx) {
   JSValue globalThis = JS_GetGlobalObject(ctx);
   JSValue fn;
+  // IntSet intrinsics
+  fn = JS_NewCFunction(ctx, c_intset_find,                      "_intsetFind",                      6);
+  JS_SetPropertyStr(ctx, globalThis, "_intsetFind", fn);
+  fn = JS_NewCFunction(ctx, c_intset_add,                        "_intsetAdd",                       8);
+  JS_SetPropertyStr(ctx, globalThis, "_intsetAdd", fn);
+  fn = JS_NewCFunction(ctx, c_intset_remove,                     "_intsetRemove",                    6);
+  JS_SetPropertyStr(ctx, globalThis, "_intsetRemove", fn);
+  // IntObjectMap intrinsics
+  fn = JS_NewCFunction(ctx, c_int_object_map_find,               "_intObjectMapFind",                6);
+  JS_SetPropertyStr(ctx, globalThis, "_intObjectMapFind", fn);
+  fn = JS_NewCFunction(ctx, c_int_object_map_put,                "_intObjectMapPut",                 8);
+  JS_SetPropertyStr(ctx, globalThis, "_intObjectMapPut", fn);
+  fn = JS_NewCFunction(ctx, c_int_object_map_remove,              "_intObjectMapRemove",              6);
+  JS_SetPropertyStr(ctx, globalThis, "_intObjectMapRemove", fn);
+  fn = JS_NewCFunction(ctx, c_int_object_map_find_available_slot, "_intObjectMapFindAvailableSlot",   3);
+  JS_SetPropertyStr(ctx, globalThis, "_intObjectMapFindAvailableSlot", fn);
+  // ScatterSet intrinsics
   fn = JS_NewCFunction(ctx, c_scatterset_find,                    "_scatterSetFind",                  6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFind", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_find_slot, "_scatterSetFindSlot", 7);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_scatterset_remove,                 "_scatterSetRemove",                6);
   JS_SetPropertyStr(ctx, globalThis, "_scatterSetRemove", fn);
+  // ScatterMap intrinsics
   fn = JS_NewCFunction(ctx, c_scattermap_find_slot, "_scatterMapFindSlot", 7);
   JS_SetPropertyStr(ctx, globalThis, "_scatterMapFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_scattermap_find, "_scatterMapFind", 6);
