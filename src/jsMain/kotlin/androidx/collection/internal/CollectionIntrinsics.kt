@@ -142,38 +142,15 @@ internal actual fun _scatterMapFindSlot(
     return -1
 }
 
-internal actual fun _scatterMapFind(
+@JsName("_scatterMapFind")
+internal actual external fun _scatterMapFind(
     metadataFlat: IntArray,
     keys: Array<Any?>,
     capacity: Int,
     key: Any?,
     hash: Int,
-    hash2: Int
-): Int {
-    val probeMask = capacity
-    var probeOffset = h1(hash) and probeMask
-    var probeIndex = 0
-
-    while (true) {
-        val g = loadGroup(metadataFlat, probeOffset)
-        var m = match(g, hash2)
-        while (m.hasNext()) {
-            val index = (probeOffset + m.get()) and probeMask
-            if (keys[index] == key) {
-                return index
-            }
-            m = m.next()
-        }
-
-        if (g.maskEmpty() != 0L) {
-            break
-        }
-
-        probeIndex += GroupWidth
-        probeOffset = (probeOffset + probeIndex) and probeMask
-    }
-    return -1
-}
+    hash2: Int,
+): Int
 
 internal actual fun _scatterMapRemove(
     metadataFlat: IntArray,
