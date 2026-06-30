@@ -20,7 +20,11 @@
 package androidx.collection
 
 import androidx.collection.internal.EMPTY_OBJECTS
+import androidx.collection.internal.IntAsLongArray
 import androidx.collection.internal.requirePrecondition
+import androidx.collection.internal._intObjectMapFind
+import androidx.collection.internal._intObjectMapFindSlot
+import androidx.collection.internal._intObjectMapRemove
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -278,8 +282,8 @@ public sealed class IntObjectMap<V> {
     // NOTE: Our arrays are marked internal to implement inlined forEach{}
     // The backing array for the metadata bytes contains
     // `capacity + 1 + ClonedMetadataCount` entries, including when
-    // the table is empty (see [EmptyGroup]).
-    @PublishedApi @JvmField internal var metadata: LongArray = EmptyGroup
+    // the table is empty (see [EmptyGroupInt]).
+    @PublishedApi @JvmField internal var metadata: IntAsLongArray = EmptyGroupInt
 
     @PublishedApi @JvmField internal var keys: IntArray = EmptyIntArray
 
@@ -576,31 +580,14 @@ public sealed class IntObjectMap<V> {
     internal inline fun findKeyIndex(key: Int): Int {
         val hash = hash(key)
         val hash2 = h2(hash)
-
-        val probeMask = _capacity
-        var probeOffset = h1(hash) and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (keys[index] == key) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
-        }
-
-        return -1
+        return _intObjectMapFind(
+            metadata.data,
+            keys,
+            _capacity,
+            key,
+            hash,
+            hash2
+        )
     }
 }
 
@@ -656,13 +643,15 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
     private fun initializeMetadata(capacity: Int) {
         metadata =
             if (capacity == 0) {
-                EmptyGroup
+                EmptyGroupInt
             } else {
                 // Round up to the next multiple of 8 and find how many longs we need
                 val size = (((capacity + 1 + ClonedMetadataCount) + 7) and 0x7.inv()) shr 3
-                LongArray(size).apply { fill(AllEmpty) }
+                IntAsLongArray(size).apply {
+                    fill(AllEmpty)
+                    writeRawMetadata(this, capacity, Sentinel)
+                }
             }
-        writeRawMetadata(metadata, capacity, Sentinel)
         initializeGrowth()
     }
 
@@ -720,9 +709,22 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
      * in the map, this function returns the value that was present before removal.
      */
     public fun remove(key: Int): V? {
-        val index = findKeyIndex(key)
+        val hash = hash(key)
+        val hash2 = h2(hash)
+        val index = _intObjectMapRemove(
+            metadata.data,
+            keys,
+            _capacity,
+            key,
+            hash,
+            hash2
+        )
         if (index >= 0) {
-            return removeValueAt(index)
+            _size -= 1
+            val oldValue = values[index]
+            values[index] = null
+
+            @Suppress("UNCHECKED_CAST") return oldValue as V?
         }
         return null
     }
@@ -790,7 +792,7 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
     /** Removes all mappings from this map. */
     public fun clear() {
         _size = 0
-        if (metadata !== EmptyGroup) {
+        if (metadata !== EmptyGroupInt) {
             metadata.fill(AllEmpty)
             writeRawMetadata(metadata, _capacity, Sentinel)
         }
@@ -809,30 +811,21 @@ public class MutableIntObjectMap<V>(initialCapacity: Int = DefaultScatterCapacit
         val hash1 = h1(hash)
         val hash2 = h2(hash)
 
-        val probeMask = _capacity
-        var probeOffset = hash1 and probeMask
-        var probeIndex = 0
-
-        while (true) {
-            val g = group(metadata, probeOffset)
-            var m = g.match(hash2)
-            while (m.hasNext()) {
-                val index = (probeOffset + m.get()) and probeMask
-                if (keys[index] == key) {
-                    return index
-                }
-                m = m.next()
-            }
-
-            if (g.maskEmpty() != 0L) {
-                break
-            }
-
-            probeIndex += GroupWidth
-            probeOffset = (probeOffset + probeIndex) and probeMask
+        val emptySlot = IntArray(1)
+        val slot = _intObjectMapFindSlot(
+            metadata.data,
+            keys,
+            _capacity,
+            key,
+            hash,
+            hash2,
+            emptySlot
+        )
+        if (slot != -1) {
+            return slot
         }
 
-        var index = findFirstAvailableSlot(hash1)
+        var index = emptySlot[0]
         if (growthLimit == 0 && !isDeleted(metadata, index)) {
             adjustStorage()
             index = findFirstAvailableSlot(hash1)

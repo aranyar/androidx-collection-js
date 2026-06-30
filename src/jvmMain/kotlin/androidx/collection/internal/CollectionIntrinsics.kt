@@ -429,6 +429,42 @@ internal actual fun _intObjectMapFind(
     return -1
 }
 
+internal actual fun _intObjectMapFindSlot(
+    metadataFlat: IntArray,
+    keys: IntArray,
+    capacity: Int,
+    key: Int,
+    hash: Int,
+    hash2: Int,
+    emptySlot: IntArray,
+): Int {
+    val probeMask = capacity
+    var probeOffset = h1(hash) and probeMask
+    var probeIndex = 0
+
+    while (true) {
+        val g = loadGroup(metadataFlat, probeOffset)
+        var m = match(g, hash2)
+        while (m != 0L) {
+            val byteInGroup = m.countTrailingZeroBits() shr 3
+            val index = (probeOffset + byteInGroup) and probeMask
+            if (keys[index] == key) {
+                return index
+            }
+            m = m and (m - 1)
+        }
+
+        if (hasEmpty(g)) {
+            break
+        }
+
+        probeIndex += GroupWidth
+        probeOffset = (probeOffset + probeIndex) and probeMask
+    }
+    emptySlot[0] = findFirstAvailableSlot(metadataFlat, capacity, h1(hash))
+    return -1
+}
+
 internal actual fun _intObjectMapPut(
     metadataFlat: IntArray,
     keys: IntArray,

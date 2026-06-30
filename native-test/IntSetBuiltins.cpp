@@ -675,6 +675,50 @@ static JSValue c_int_object_map_find(JSContext *ctx, JSValueConst this_val, int 
     return JS_NewInt32(ctx, -1);
 }
 
+static JSValue c_int_object_map_find_slot(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc;
+    int32_t* meta = get_int32_data(ctx, argv[0], "meta");
+    if (!meta) return JS_EXCEPTION;
+    // argv[0]=meta, argv[1]=keys, argv[2]=capacity, argv[3]=key, argv[4]=hash, argv[5]=hash2, argv[6]=emptySlot
+    int32_t capacity = JS_VALUE_GET_INT(argv[2]);
+    int32_t key = JS_VALUE_GET_INT(argv[3]);
+    int32_t hash = JS_VALUE_GET_INT(argv[4]);
+    int32_t hash2 = JS_VALUE_GET_INT(argv[5]);
+    int32_t* emptySlot = get_int32_data(ctx, argv[6], "emptySlot");
+    if (!emptySlot) return JS_EXCEPTION;
+
+    int32_t mask = capacity;
+    int32_t probeOffset = ((uint32_t)hash >> 7) & mask;
+    int32_t probeIndex = 0;
+
+    while (1) {
+        uint64_t g = load_group(meta, probeOffset, capacity);
+        uint64_t m = match_hash2(g, hash2);
+        while (m != 0) {
+            int32_t bitIdx = __builtin_ctzll(m);
+            int32_t byteInGroup = bitIdx >> 3;
+            int32_t index = (probeOffset + byteInGroup) & mask;
+            JSValue slotVal = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)index);
+            if (JS_IsException(slotVal)) {
+                return JS_EXCEPTION;
+            }
+            int32_t slotKey = JS_VALUE_GET_INT(slotVal);
+            JS_FreeValue(ctx, slotVal);
+            if (slotKey == key) {
+                return JS_NewInt32(ctx, index);
+            }
+            m &= m - 1;
+        }
+        if (any_empty(g)) {
+            break;
+        }
+        probeIndex += 8;
+        probeOffset = (probeOffset + probeIndex) & mask;
+    }
+    emptySlot[0] = find_first_available_slot(meta, capacity, ((uint32_t)hash >> 7) & mask);
+    return JS_NewInt32(ctx, -1);
+}
+
 static JSValue c_int_object_map_put(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     (void)this_val; (void)argc;
     int32_t* meta = get_int32_data(ctx, argv[0], "meta");
@@ -820,6 +864,8 @@ extern "C" __attribute__((visibility("default"))) void js_intset_register_builti
   // IntObjectMap intrinsics
   fn = JS_NewCFunction(ctx, c_int_object_map_find,               "_intObjectMapFind",                6);
   JS_SetPropertyStr(ctx, globalThis, "_intObjectMapFind", fn);
+  fn = JS_NewCFunction(ctx, c_int_object_map_find_slot,         "_intObjectMapFindSlot",            7);
+  JS_SetPropertyStr(ctx, globalThis, "_intObjectMapFindSlot", fn);
   fn = JS_NewCFunction(ctx, c_int_object_map_put,                "_intObjectMapPut",                 8);
   JS_SetPropertyStr(ctx, globalThis, "_intObjectMapPut", fn);
   fn = JS_NewCFunction(ctx, c_int_object_map_remove,              "_intObjectMapRemove",              6);

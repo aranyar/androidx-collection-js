@@ -180,6 +180,17 @@ internal actual external fun _intObjectMapFind(
     hash2: Int,
 ): Int
 
+@JsName("_intObjectMapFindSlot")
+internal actual external fun _intObjectMapFindSlot(
+    metadataFlat: IntArray,
+    keys: IntArray,
+    capacity: Int,
+    key: Int,
+    hash: Int,
+    hash2: Int,
+    emptySlot: IntArray,
+): Int
+
 @JsName("_intObjectMapPut")
 internal actual external fun _intObjectMapPut(
     metadataFlat: IntArray,

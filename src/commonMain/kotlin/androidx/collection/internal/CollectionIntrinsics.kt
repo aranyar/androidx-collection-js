@@ -108,6 +108,16 @@ internal expect fun _intObjectMapFind(
     hash2: Int,
 ): Int
 
+internal expect fun _intObjectMapFindSlot(
+    metadataFlat: IntArray,
+    keys: IntArray,
+    capacity: Int,
+    key: Int,
+    hash: Int,
+    hash2: Int,
+    emptySlot: IntArray,
+): Int
+
 internal expect fun _intObjectMapPut(
     metadataFlat: IntArray,
     keys: IntArray,
