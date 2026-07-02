@@ -1,14 +1,12 @@
-import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
-import org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile
 import org.jetbrains.kotlin.konan.target.Family
 
 plugins {
     kotlin("multiplatform") version "2.3.21"
-    `maven-publish`
+    id("com.vanniktech.maven.publish") version "0.37.0"
 }
 
-group = "androidx.collection"
+group = "io.github.tret9"
 version = "1.5.0-js-0.1"
 
 val quickjsSourceDir = file("native-test/quickjs")
@@ -33,12 +31,14 @@ tasks.register<Exec>("jsQjsTest") {
     val qjsBinary = file("${quickjsSourceDir}/qjs")
 
     workingDir = mainDir
-    commandLine("sh", "-c", """
+    commandLine(
+        "sh", "-c", """
         cp ${file("native-test/webpack-test.config.js").absolutePath} ${mainDir.absolutePath}/webpack.config.js
         mkdir -p dist
         node ${file("node_modules/webpack/bin/webpack.js").absolutePath} --config webpack.config.js
         ${qjsBinary.absolutePath} ${bundleOutputDir.absolutePath}/collection-bundle.js
-    """)
+    """
+    )
 }
 
 
@@ -140,6 +140,67 @@ kotlin {
         }
     }
 }
+
+mavenPublishing {
+    // Publishes to the Central Portal (central.sonatype.com), the current Maven
+    // Central publishing system. Credentials are read from Gradle properties
+    // mavenCentralUsername / mavenCentralPassword, which are supplied via the
+    // ORG_GRADLE_PROJECT_mavenCentralUsername / ORG_GRADLE_PROJECT_mavenCentralPassword
+    // environment variables. The deployment is left manual so the first releases
+    // can be reviewed and released from the Central Portal UI; pass
+    // publishToMavenCentral(automaticRelease = true) to release automatically
+    // once validation passes.
+    publishToMavenCentral()
+
+    // GPG-signs every artifact using the in-memory key supplied via the
+    // ORG_GRADLE_PROJECT_signingInMemoryKey environment variable (plus
+    // ...signingInMemoryKeyId / ...signingInMemoryKeyPassword when needed).
+    //
+    // Only enabled when a signing key is actually configured. This keeps
+    // `publishToMavenLocal` (and any build without release secrets) working
+    // without a GPG signatory, while the Maven Central release build — which
+    // supplies ORG_GRADLE_PROJECT_signingInMemoryKey — is still fully signed as
+    // Central requires.
+    if (project.hasProperty("signingInMemoryKey") || project.hasProperty("signing.keyId")) {
+        signAllPublications()
+    }
+
+    // groupId:artifactId:version. The per-target publications are derived
+    // automatically: collection, collection-jvm, collection-js, collection-iosarm64, ...
+    coordinates(group.toString(), "collection", version.toString())
+
+    pom {
+        name.set("collection")
+        description.set(
+            "Kotlin Multiplatform port of AndroidX Collection: memory-efficient " +
+                    "collections including primitive-keyed maps and sets.",
+        )
+        url.set("https://github.com/tret9/androidx-collection-js")
+
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("tret9")
+                name.set("tret9")
+                url.set("https://github.com/tret9")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/tret9/androidx-collection-js")
+            connection.set("scm:git:git://github.com/tret9/androidx-collection-js.git")
+            developerConnection.set("scm:git:ssh://git@github.com/tret9/androidx-collection-js.git")
+        }
+    }
+}
+
 
 publishing {
     publications {
