@@ -47,9 +47,8 @@ kotlin {
     applyDefaultHierarchyTemplate {
         common {
             group("nonJs") {
-                withAndroidTarget()
                 withJvm()
-                withIos()
+                withNative()
             }
         }
     }
