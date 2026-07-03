@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "io.github.tret9"
-version = "1.5.0-js-0.1"
+version = "1.6.0-alpha01-js-0.1"
 
 val quickjsSourceDir = file("native-test/quickjs")
 
@@ -126,18 +126,6 @@ kotlin {
             }
         }
 
-        // Per 1.5.0 build: explicit native target → source set wiring
-        targets.withType<KotlinNativeTarget>().configureEach {
-            compilations.getByName("main").defaultSourceSet {
-                val konanTargetFamily = konanTarget.family
-                when (konanTargetFamily) {
-                    Family.OSX, Family.IOS, Family.WATCHOS, Family.TVOS -> dependsOn(appleMain)
-                    Family.LINUX -> dependsOn(linuxMain)
-                    Family.MINGW -> dependsOn(mingwMain)
-                    else -> {}
-                }
-            }
-        }
     }
 }
 

@@ -24,26 +24,26 @@ private val DELETED_BYTE_MASK = 0xFEFEFEFEFEFEFEFEUL.toLong()
 private val HIGH_BIT_MASK = 0x8080808080808080UL.toLong()
 private val REPEATED_ONE = 0x0101010101010101L
 
-@JsName("_scatterSetFind")
-internal actual external fun _scatterSetFind(
-    metadataFlat: IntArray,
-    elements: Array<Any?>,
-    capacity: Int,
-    element: Any?,
-    hash: Int,
-    hash2: Int,
-): Int
-
-@JsName("_scatterSetFindSlot")
-internal actual external fun _scatterSetFindSlot(
-    metadataFlat: IntArray,
-    elements: Array<Any?>,
-    capacity: Int,
-    element: Any?,
-    hash: Int,
-    hash2: Int,
-    emptySlot: IntArray,
-): Int
+//@JsName("_scatterSetFind")
+//internal actual external fun _scatterSetFind(
+//    metadataFlat: IntArray,
+//    elements: Array<Any?>,
+//    capacity: Int,
+//    element: Any?,
+//    hash: Int,
+//    hash2: Int,
+//): Int
+//
+//@JsName("_scatterSetFindSlot")
+//internal actual external fun _scatterSetFindSlot(
+//    metadataFlat: IntArray,
+//    elements: Array<Any?>,
+//    capacity: Int,
+//    element: Any?,
+//    hash: Int,
+//    hash2: Int,
+//    emptySlot: IntArray,
+//): Int
 
 private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1: Int): Int {
     val probeMask = capacity
@@ -60,15 +60,15 @@ private fun findFirstAvailableSlot(metadataFlat: IntArray, capacity: Int, hash1:
     }
 }
 
-@JsName("_scatterSetRemove")
-internal actual external fun _scatterSetRemove(
-    metadataFlat: IntArray,
-    elements: Array<Any?>,
-    capacity: Int,
-    element: Any?,
-    hash: Int,
-    hash2: Int,
-): Int
+//@JsName("_scatterSetRemove")
+//internal actual external fun _scatterSetRemove(
+//    metadataFlat: IntArray,
+//    elements: Array<Any?>,
+//    capacity: Int,
+//    element: Any?,
+//    hash: Int,
+//    hash2: Int,
+//): Int
 
 private fun loadGroup(metadata: IntArray, offset: Int): Long {
     val i = offset shr 3
@@ -107,37 +107,37 @@ private fun writeByte(metadata: IntArray, slot: Int, value: Long) {
     metadata[intIdx] = new
 }
 
-@JsName("_scatterMapFindSlot")
-internal actual external fun _scatterMapFindSlot(
-    metadataFlat: IntArray,
-    keys: Array<Any?>,
-    capacity: Int,
-    key: Any?,
-    hash: Int,
-    hash2: Int,
-    emptySlot: IntArray,
-): Int
-
-@JsName("_scatterMapFind")
-internal actual external fun _scatterMapFind(
-    metadataFlat: IntArray,
-    keys: Array<Any?>,
-    capacity: Int,
-    key: Any?,
-    hash: Int,
-    hash2: Int,
-): Int
-
-@JsName("_scatterMapRemove")
-internal actual external fun _scatterMapRemove(
-    metadataFlat: IntArray,
-    keys: Array<Any?>,
-    values: Array<Any?>,
-    capacity: Int,
-    key: Any?,
-    hash: Int,
-    hash2: Int,
-): Int
+//@JsName("_scatterMapFindSlot")
+//internal actual external fun _scatterMapFindSlot(
+//    metadataFlat: IntArray,
+//    keys: Array<Any?>,
+//    capacity: Int,
+//    key: Any?,
+//    hash: Int,
+//    hash2: Int,
+//    emptySlot: IntArray,
+//): Int
+//
+//@JsName("_scatterMapFind")
+//internal actual external fun _scatterMapFind(
+//    metadataFlat: IntArray,
+//    keys: Array<Any?>,
+//    capacity: Int,
+//    key: Any?,
+//    hash: Int,
+//    hash2: Int,
+//): Int
+//
+//@JsName("_scatterMapRemove")
+//internal actual external fun _scatterMapRemove(
+//    metadataFlat: IntArray,
+//    keys: Array<Any?>,
+//    values: Array<Any?>,
+//    capacity: Int,
+//    key: Any?,
+//    hash: Int,
+//    hash2: Int,
+//): Int
 
 @JsName("_intsetFind")
 internal actual external fun _intsetFind(
