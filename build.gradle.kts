@@ -44,7 +44,15 @@ tasks.register<Exec>("jsQjsTest") {
 
 
 kotlin {
-    applyDefaultHierarchyTemplate()
+    applyDefaultHierarchyTemplate {
+        common {
+            group("nonJs") {
+                withAndroidTarget()
+                withJvm()
+                withIos()
+            }
+        }
+    }
 
     jvm()
     js {
@@ -62,14 +70,11 @@ kotlin {
     iosSimulatorArm64()
     iosX64()
     macosArm64()
-    macosX64()
     tvosArm64()
     tvosSimulatorArm64()
-    tvosX64()
     watchosArm32()
     watchosArm64()
     watchosSimulatorArm64()
-    watchosX64()
     linuxArm64()
     linuxX64()
     mingwX64()
@@ -89,6 +94,7 @@ kotlin {
         val macosMain by getting
         val tvosMain by getting
         val watchosMain by getting
+        val nonJsMain by getting
 
         commonMain.dependencies {
             api(kotlin("stdlib"))
