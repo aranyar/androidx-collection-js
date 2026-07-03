@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <path-to-androidx> <new-revision>"
     exit 1
@@ -24,7 +26,12 @@ PATCH_FILE="${HOME}/collection.patch"
 
 git -C "$ANDROIDX_PATH" diff "$CURRENT_REVISION" "$NEW_REVISION" -- collection/collection > "$PATCH_FILE"
 
+echo "updating from:"
+git -C "$ANDROIDX_PATH" show "$CURRENT_REVISION":libraryversions.toml 2>/dev/null | grep -E '^COLLECTION = "[^"]*"'
+echo "to:"
+git -C "$ANDROIDX_PATH" show "$NEW_REVISION":libraryversions.toml 2>/dev/null | grep -E '^COLLECTION = "[^"]*"'
+
 echo "$NEW_REVISION" > androidx_revision.txt
 
 echo "To update run:"
-echo "git apply -p 3 \$HOME/collection.patch"
+echo "git apply --3way --exclude=build.gradle -p 3 \$HOME/collection.patch"
