@@ -905,24 +905,41 @@ static JSValue c_get_string_hash_code(JSContext *ctx, JSValueConst this_val, int
             code = (uint8_t)cstr[i];
             i += 1;
         } else if ((cstr[i] & 0xE0) == 0xC0) {
-            // 2-byte sequence
+            // 2-byte sequence - bounds check
+            if (i + 1 >= byteLen) break;
             code = ((uint8_t)cstr[i] & 0x1F) << 6;
             code |= ((uint8_t)cstr[i + 1] & 0x3F);
             i += 2;
         } else if ((cstr[i] & 0xF0) == 0xE0) {
-            // 3-byte sequence
+            // 3-byte sequence - bounds check
+            if (i + 2 >= byteLen) break;
             code = ((uint8_t)cstr[i] & 0x0F) << 12;
             code |= ((uint8_t)cstr[i + 1] & 0x3F) << 6;
             code |= ((uint8_t)cstr[i + 2] & 0x3F);
             i += 3;
         } else {
-            // 4-byte sequence (surrogate pair in UTF-16)
-            // For simplicity, just use the raw bytes combined
-            code = ((uint8_t)cstr[i] & 0x07) << 18;
-            code |= ((uint8_t)cstr[i + 1] & 0x3F) << 12;
-            code |= ((uint8_t)cstr[i + 2] & 0x3F) << 6;
-            code |= ((uint8_t)cstr[i + 3] & 0x3F);
+            // 4-byte sequence - bounds check
+            if (i + 3 >= byteLen) break;
+            // 4-byte sequence represents a Unicode code point outside BMP (U+10000 and above)
+            // Decode to get the full code point
+            uint32_t fullCodePoint = ((uint8_t)cstr[i] & 0x07) << 18;
+            fullCodePoint |= ((uint8_t)cstr[i + 1] & 0x3F) << 12;
+            fullCodePoint |= ((uint8_t)cstr[i + 2] & 0x3F) << 6;
+            fullCodePoint |= ((uint8_t)cstr[i + 3] & 0x3F);
             i += 4;
+
+            // Convert to UTF-16 surrogate pairs (what JS charCodeAt returns)
+            // High surrogate: 0xD800 + top 10 bits of (codePoint - 0x10000)
+            // Low surrogate:  0xDC00 + bottom 10 bits of (codePoint - 0x10000)
+            uint32_t adjusted = fullCodePoint - 0x10000;
+            uint32_t highSurrogate = 0xD800 + (adjusted >> 10);
+            uint32_t lowSurrogate = 0xDC00 + (adjusted & 0x3FF);
+
+            // First char
+            hash = (int32_t)((int32_t)hash * 31 + (int32_t)highSurrogate);
+            // Second char
+            hash = (int32_t)((int32_t)hash * 31 + (int32_t)lowSurrogate);
+            continue;
         }
         // hash * 31 + char, with 32-bit signed integer overflow (same as JS.imul)
         hash = (int32_t)((int32_t)hash * 31 + (int32_t)code);
