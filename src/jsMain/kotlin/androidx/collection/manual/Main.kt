@@ -16,6 +16,7 @@ fun main() {
     totalPassed += runTests(ScatterMapTest(), "ScatterMap")
     totalPassed += runTests(CliveTest(), "Clive")
     totalPassed += runTests(JsStringHashCodeTest(), "JsStringHashCode")
+    totalPassed += runTests(JsArrayCopyTest(), "JsArrayCopy")
 
     println("\n================================")
     println("Total: $totalPassed passed, $totalFailed failed")
